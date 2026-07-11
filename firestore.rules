@@ -1,0 +1,133 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Global Catch-All: Deny everything by default
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Global Helper Functions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && 
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == "admin" ||
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == "founder" ||
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == "co-founder" ||
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == "co_founder");
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    // Users Collection rules
+    match /users/{userId} {
+      allow read: if isSignedIn() && (isOwner(userId) || isAdmin());
+      
+      // Allow creation by admin or during first-login bootstrap
+      allow create: if isSignedIn() && (isOwner(userId) || isAdmin());
+      
+      // Allow updates: users can only change non-critical KYC / profile fields. Admins can update anything.
+      allow update: if isSignedIn() && (
+        isAdmin() || 
+        (isOwner(userId) && 
+         !request.resource.data.diff(resource.data).affectedKeys().hasAny(['role', 'walletBalance', 'accountStatus', 'badge', 'userId', 'email', 'joinDate'])
+        )
+      );
+      
+      allow delete: if isAdmin();
+    }
+
+    // Payments Collection rules
+    match /payments/{paymentId} {
+      allow read: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
+      
+      // Allow users to create requests, admins can create too
+      allow create: if isSignedIn() && (request.resource.data.userId == request.auth.uid || isAdmin());
+      
+      // Only admins can update payments (e.g. status transitions, remarks)
+      allow update: if isAdmin();
+      
+      allow delete: if isAdmin();
+    }
+
+    // Withdrawals Collection rules
+    match /withdrawals/{withdrawalId} {
+      allow read: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow create: if isSignedIn() && (request.resource.data.userId == request.auth.uid || isAdmin());
+      allow update: if isAdmin();
+      allow delete: if isAdmin();
+    }
+
+    // Challenges Collection rules
+    match /challenges/{challengeId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    // Challenge Progress Collection rules
+    match /challengeProgress/{progressId} {
+      allow read: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
+      
+      // Allow creation / updating of individual progress
+      allow create, update: if isSignedIn() && (request.resource.data.userId == request.auth.uid || isAdmin());
+      
+      allow delete: if isAdmin();
+    }
+
+    // Notifications Collection rules
+    match /notifications/{notificationId} {
+      allow read: if isSignedIn() && (resource.data.userId == request.auth.uid || resource.data.userId == 'all' || isAdmin());
+      allow create: if isSignedIn(); // Users can trigger notifications (e.g. on requests)
+      allow update: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow delete: if isAdmin();
+    }
+
+    // Announcements Collection rules
+    match /announcements/{announcementId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    // Audit Logs Collection rules
+    match /auditLogs/{logId} {
+      allow read: if isAdmin();
+      allow create: if isSignedIn(); // Allow writing log during admin actions
+      allow update, delete: if false; // Audit logs should be immutable
+    }
+
+    // Custom Pages Collection rules
+    match /pages/{pageId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    // Membership Plans Collection rules
+    match /membershipPlans/{planId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    // Settings Collection rules
+    match /settings/{settingId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    // Revenue Transactions Collection rules
+    match /revenueTransactions/{txId} {
+      allow read: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
+      allow create: if isSignedIn();
+      allow update, delete: if false;
+    }
+  }
+}

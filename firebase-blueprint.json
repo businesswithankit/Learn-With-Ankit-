@@ -1,0 +1,181 @@
+{
+  "entities": {
+    "User": {
+      "title": "User Profile",
+      "description": "User profile collection containing earnings, balance, settings, and role details.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "username": { "type": "string" },
+        "email": { "type": "string" },
+        "phone": { "type": "string" },
+        "state": { "type": "string" },
+        "joinDate": { "type": "string" },
+        "accountStatus": { "type": "string", "enum": ["Active", "Suspended", "Pending"] },
+        "totalEarnings": { "type": "number" },
+        "walletBalance": { "type": "number" },
+        "profilePic": { "type": "string" },
+        "role": { "type": "string", "enum": ["admin", "user"] },
+        "badge": { "type": "string", "enum": ["Bronze", "Silver", "Gold", "Diamond"] },
+        "kycName": { "type": "string" },
+        "kycUpiId": { "type": "string" },
+        "kycUpiNumber": { "type": "string" },
+        "todayEarnings": { "type": "number" },
+        "last7DaysEarnings": { "type": "number" },
+        "last30DaysEarnings": { "type": "number" }
+      },
+      "required": ["userId", "username", "email", "role"]
+    },
+    "PaymentRequest": {
+      "title": "Payment Request",
+      "description": "Leads and earnings payments uploaded/requested by users or created by admin.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "username": { "type": "string" },
+        "date": { "type": "string" },
+        "email": { "type": "string" },
+        "phone": { "type": "string" },
+        "totalLeads": { "type": "number" },
+        "totalAmount": { "type": "number" },
+        "status": { "type": "string", "enum": ["Pending", "Approved", "Rejected"] },
+        "timestamp": { "type": "string" },
+        "adminRemark": { "type": "string" },
+        "txId": { "type": "string" }
+      },
+      "required": ["userId", "username", "totalLeads", "totalAmount", "status"]
+    },
+    "WithdrawalRequest": {
+      "title": "Withdrawal Request",
+      "description": "Withdrawal request details submitted by verified KYC users.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "username": { "type": "string" },
+        "date": { "type": "string" },
+        "email": { "type": "string" },
+        "phone": { "type": "string" },
+        "withdrawalAmount": { "type": "number" },
+        "status": { "type": "string", "enum": ["Pending", "Approved", "Rejected", "Completed"] },
+        "timestamp": { "type": "string" },
+        "adminRemark": { "type": "string" },
+        "holderName": { "type": "string" },
+        "upiId": { "type": "string" },
+        "upiNumber": { "type": "string" }
+      },
+      "required": ["userId", "username", "withdrawalAmount", "status"]
+    },
+    "Challenge": {
+      "title": "Challenge",
+      "description": "Admin created incentive challenges with reward parameters.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "bannerImage": { "type": "string" },
+        "challengeName": { "type": "string" },
+        "description": { "type": "string" },
+        "rewardAmount": { "type": "number" },
+        "target": { "type": "number" },
+        "startDate": { "type": "string" },
+        "endDate": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["challengeName", "rewardAmount", "target", "startDate", "endDate"]
+    },
+    "ChallengeProgress": {
+      "title": "Challenge Progress",
+      "description": "The progression status of an individual user on a specific challenge.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "challengeId": { "type": "string" },
+        "completedCount": { "type": "number" },
+        "target": { "type": "number" },
+        "rewardClaimed": { "type": "boolean" },
+        "status": { "type": "string", "enum": ["active", "completed", "claimed"] }
+      },
+      "required": ["userId", "challengeId", "completedCount", "target", "rewardClaimed"]
+    },
+    "Notification": {
+      "title": "Notification",
+      "description": "Alert messages and system notices routed to users.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "title": { "type": "string" },
+        "body": { "type": "string" },
+        "timestamp": { "type": "string" },
+        "isRead": { "type": "boolean" },
+        "type": { "type": "string" }
+      },
+      "required": ["userId", "title", "body", "isRead"]
+    },
+    "Announcement": {
+      "title": "Announcement",
+      "description": "Broad announcements displayed globally across user dashboards.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "content": { "type": "string" },
+        "title": { "type": "string" },
+        "timestamp": { "type": "string" },
+        "active": { "type": "boolean" }
+      },
+      "required": ["content", "title", "active"]
+    },
+    "AuditLog": {
+      "title": "Audit Log",
+      "description": "Permanent tamper-evident logs tracking administrative actions.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "adminName": { "type": "string" },
+        "adminId": { "type": "string" },
+        "action": { "type": "string" },
+        "date": { "type": "string" },
+        "time": { "type": "string" },
+        "ip": { "type": "string" },
+        "timestamp": { "type": "string" }
+      },
+      "required": ["adminName", "adminId", "action", "date", "time"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "User profile collection by auth UID."
+    },
+    "/payments/{paymentId}": {
+      "schema": "PaymentRequest",
+      "description": "Payment requests collection."
+    },
+    "/withdrawals/{withdrawalId}": {
+      "schema": "WithdrawalRequest",
+      "description": "Withdrawal requests collection."
+    },
+    "/challenges/{challengeId}": {
+      "schema": "Challenge",
+      "description": "Challenges collection."
+    },
+    "/challengeProgress/{progressId}": {
+      "schema": "ChallengeProgress",
+      "description": "Progress tracking for each challenge-user combo."
+    },
+    "/notifications/{notificationId}": {
+      "schema": "Notification",
+      "description": "Individual/global notifications."
+    },
+    "/announcements/{announcementId}": {
+      "schema": "Announcement",
+      "description": "Global announcement notices."
+    },
+    "/auditLogs/{logId}": {
+      "schema": "AuditLog",
+      "description": "Administrative actions audit log."
+    }
+  }
+}

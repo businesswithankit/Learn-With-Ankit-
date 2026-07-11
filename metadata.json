@@ -1,0 +1,6 @@
+{
+  "name": "LEARN WITH ANKIT",
+  "description": "Premium Dark Theme Earnings Management System with real-time Firebase tracking, wallet, payment and withdrawal requests, leaderboards, challenge portal, and administrative audit logs.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
