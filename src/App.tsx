@@ -16,10 +16,12 @@ import PaymentRequestSection from "./components/PaymentRequestSection";
 import WithdrawalSection from "./components/WithdrawalSection";
 import Leaderboard from "./components/Leaderboard";
 import ChallengesSection from "./components/ChallengesSection";
+import ServicesPage from "./components/ServicesPage";
 import ProfileSection from "./components/ProfileSection";
 import HistoryPage from "./components/HistoryPage";
 import AdminPanel from "./components/AdminPanel";
 import SocialMediaIcons from "./components/SocialMediaIcons";
+import { logAuditAction } from "./utils/audit";
 
 
 // Icons
@@ -140,6 +142,18 @@ export default function App() {
             }
             
             setCurrentUser(data);
+
+            // Log Login event once per session
+            if (!sessionStorage.getItem("logged_in_audit")) {
+              sessionStorage.setItem("logged_in_audit", "true");
+              logAuditAction(
+                data.userId,
+                data.username,
+                "Login",
+                "Self",
+                `User logged in successfully with role: ${data.role}`
+              );
+            }
           } else {
             // Document doesn't exist, check if bootstrap admin is logging in
             if (authUser.email === "anmolkumar10290@gmail.com") {
@@ -284,6 +298,16 @@ export default function App() {
 
   const handleLogout = async () => {
     try {
+      if (currentUser) {
+        await logAuditAction(
+          currentUser.userId,
+          currentUser.username,
+          "Logout",
+          "Self",
+          "User logged out of session"
+        );
+      }
+      sessionStorage.removeItem("logged_in_audit");
       await signOut(auth);
       setActivePage("dashboard");
     } catch (err) {
@@ -525,6 +549,7 @@ export default function App() {
     { id: "leaderboard", label: "Leaderboard", icon: <Trophy className="w-4.5 h-4.5" /> },
     { id: "challenge", label: "Challenges", icon: <Award className="w-4.5 h-4.5" /> },
     { id: "kyc", label: "KYC Verification", icon: <Shield className="w-4.5 h-4.5" /> },
+    { id: "services", label: "Services", icon: <Sparkles className="w-4.5 h-4.5 text-amber-500/80" /> },
     { id: "profile", label: "My Profile", icon: <User className="w-4.5 h-4.5" /> },
     ...customPages.map((page) => ({
       id: `custom_page_${page.slug}`,
@@ -739,6 +764,10 @@ export default function App() {
 
           {activePage === "kyc" && (
             <KYCSection user={currentUser} onUpdateUser={handleUpdateLocalUser} />
+          )}
+
+          {activePage === "services" && (
+            <ServicesPage user={currentUser} onUpdateUser={handleUpdateLocalUser} />
           )}
 
           {activePage === "profile" && (

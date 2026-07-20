@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { collection, query, where, onSnapshot, orderBy, deleteDoc, doc } from "firebase/firestore";
+import { collection, query, where, onSnapshot, orderBy, updateDoc, doc } from "firebase/firestore";
 import { db, handleFirestoreError, OperationType } from "../firebase";
 import { PaymentRequest, WithdrawalRequest, UserProfile, RevenueTransaction } from "../types";
 import { History, Calendar, CreditCard, ShieldAlert, ArrowUpRight, ArrowDownLeft, MessageSquare, Trash2, Award, Zap } from "lucide-react";
@@ -30,7 +30,10 @@ export default function HistoryPage({ user }: HistoryPageProps) {
       (snapshot) => {
         const list: PaymentRequest[] = [];
         snapshot.forEach((doc) => {
-          list.push({ id: doc.id, ...doc.data() } as PaymentRequest);
+          const data = doc.data();
+          if (!data.hiddenByUser) {
+            list.push({ id: doc.id, ...data } as PaymentRequest);
+          }
         });
         // Sort in memory by timestamp descending
         list.sort((a, b) => {
@@ -56,7 +59,10 @@ export default function HistoryPage({ user }: HistoryPageProps) {
       (snapshot) => {
         const list: WithdrawalRequest[] = [];
         snapshot.forEach((doc) => {
-          list.push({ id: doc.id, ...doc.data() } as WithdrawalRequest);
+          const data = doc.data();
+          if (!data.hiddenByUser) {
+            list.push({ id: doc.id, ...data } as WithdrawalRequest);
+          }
         });
         // Sort in memory by timestamp descending
         list.sort((a, b) => {
@@ -82,7 +88,10 @@ export default function HistoryPage({ user }: HistoryPageProps) {
       (snapshot) => {
         const list: RevenueTransaction[] = [];
         snapshot.forEach((doc) => {
-          list.push({ id: doc.id, ...doc.data() } as RevenueTransaction);
+          const data = doc.data();
+          if (!data.hiddenByUser) {
+            list.push({ id: doc.id, ...data } as RevenueTransaction);
+          }
         });
         list.sort((a, b) => {
           const tA = a.timestamp?.toMillis ? a.timestamp.toMillis() : 0;
@@ -110,12 +119,12 @@ export default function HistoryPage({ user }: HistoryPageProps) {
       alert("Unauthorized action. You can only delete your own history entries.");
       return;
     }
-    if (!window.confirm("Are you sure you want to delete this payment claim history record? This action cannot be undone.")) {
+    if (!window.confirm("Are you sure you want to remove this payment claim history record from your visible list? This will not affect your earnings calculation or status.")) {
       return;
     }
     try {
-      await deleteDoc(doc(db, "payments", id));
-      alert("Payment claim history entry deleted successfully.");
+      await updateDoc(doc(db, "payments", id), { hiddenByUser: true });
+      alert("Payment claim history record removed.");
     } catch (err: any) {
       console.error(err);
       alert("Failed to delete record: " + err.message);
@@ -127,12 +136,12 @@ export default function HistoryPage({ user }: HistoryPageProps) {
       alert("Unauthorized action. You can only delete your own history entries.");
       return;
     }
-    if (!window.confirm("Are you sure you want to delete this withdrawal request history record? This action cannot be undone.")) {
+    if (!window.confirm("Are you sure you want to remove this withdrawal history record from your visible list? This will not affect your wallet balance or reports.")) {
       return;
     }
     try {
-      await deleteDoc(doc(db, "withdrawals", id));
-      alert("Withdrawal history entry deleted successfully.");
+      await updateDoc(doc(db, "withdrawals", id), { hiddenByUser: true });
+      alert("Withdrawal history record removed.");
     } catch (err: any) {
       console.error(err);
       alert("Failed to delete record: " + err.message);
@@ -140,12 +149,12 @@ export default function HistoryPage({ user }: HistoryPageProps) {
   };
 
   const handleDeleteTransaction = async (id: string) => {
-    if (!window.confirm("Are you sure you want to delete this transaction record? This action cannot be undone.")) {
+    if (!window.confirm("Are you sure you want to remove this transaction record from your visible list? This will not affect your membership status or credentials.")) {
       return;
     }
     try {
-      await deleteDoc(doc(db, "revenueTransactions", id));
-      alert("Transaction record deleted successfully.");
+      await updateDoc(doc(db, "revenueTransactions", id), { hiddenByUser: true });
+      alert("Transaction record removed.");
     } catch (err: any) {
       console.error(err);
       alert("Failed to delete record: " + err.message);

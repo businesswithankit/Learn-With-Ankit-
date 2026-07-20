@@ -2,8 +2,8 @@ import React, { useState, useEffect } from "react";
 import { collection, query, onSnapshot, doc, getDoc, updateDoc, setDoc, addDoc, deleteDoc, serverTimestamp, runTransaction, writeBatch, getDocs, orderBy } from "firebase/firestore";
 import { createUserWithEmailAndPassword } from "firebase/auth";
 import { db, handleFirestoreError, OperationType, getSecondaryAuth } from "../firebase";
-import { UserProfile, PaymentRequest, WithdrawalRequest, AuditLog, Announcement, Challenge, ChallengeProgress, CoFounderPermissions, ChallengeLead, MembershipPlan, PlatformFees, WithdrawalSettings, PlatformRevenue, RevenueTransaction } from "../types";
-import { Users, CreditCard, ShieldCheck, Megaphone, Terminal, Search, UserPlus, Check, X, FileSpreadsheet, PlusCircle, AlertCircle, RefreshCw, Send, DollarSign, ShieldAlert, Settings, Bell, Trophy, Award, Landmark, Hourglass, ClipboardCheck, Sparkles, AlertTriangle, TrendingUp, Coins, Calendar, Clock, Lock, Unlock, Share2, Save } from "lucide-react";
+import { UserProfile, PaymentRequest, WithdrawalRequest, AuditLog, Announcement, Challenge, ChallengeProgress, CoFounderPermissions, ChallengeLead, MembershipPlan, PlatformFees, WithdrawalSettings, PlatformRevenue, RevenueTransaction, Service, ServicePurchase } from "../types";
+import { Users, CreditCard, ShieldCheck, Megaphone, Terminal, Search, UserPlus, Check, X, FileSpreadsheet, PlusCircle, AlertCircle, RefreshCw, Send, DollarSign, ShieldAlert, Settings, Bell, Trophy, Award, Landmark, Hourglass, ClipboardCheck, Sparkles, AlertTriangle, TrendingUp, Coins, Calendar, Clock, Lock, Unlock, Share2, Save, Trash2, Edit, Download } from "lucide-react";
 import AnimatedCounter from "./AnimatedCounter";
 import { jsPDF } from "jspdf";
 
@@ -11,7 +11,7 @@ interface AdminPanelProps {
   adminUser: UserProfile;
 }
 
-type AdminTab = "analytics" | "users" | "payments" | "withdrawals" | "challenges_review" | "notifications" | "settings" | "announcements" | "weeklyReport" | "pages" | "navigation" | "storage" | "email" | "features" | "membership" | "fees" | "withdrawal_settings" | "revenue" | "social_settings";
+type AdminTab = "analytics" | "users" | "payments" | "withdrawals" | "challenges_review" | "services" | "memberships_manage" | "audit_logs" | "notifications" | "settings" | "announcements" | "weeklyReport" | "pages" | "navigation" | "storage" | "email" | "features" | "membership" | "fees" | "withdrawal_settings" | "revenue" | "social_settings";
 
 
 export default function AdminPanel({ adminUser }: AdminPanelProps) {
@@ -216,6 +216,18 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
   const [withdrawConfig, setWithdrawConfig] = useState<WithdrawalSettings | null>(null);
   const [revenueData, setRevenueData] = useState<PlatformRevenue | null>(null);
   const [revenueTransactions, setRevenueTransactions] = useState<RevenueTransaction[]>([]);
+
+  // --- SERVICES ADMIN STATES ---
+  const [adminServices, setAdminServices] = useState<Service[]>([]);
+  const [adminServicePurchases, setAdminServicePurchases] = useState<ServicePurchase[]>([]);
+
+  // Services form state
+  const [editingService, setEditingService] = useState<Service | null>(null);
+  const [serviceName, setServiceName] = useState("");
+  const [serviceDescription, setServiceDescription] = useState("");
+  const [servicePrice, setServicePrice] = useState<number | "">("");
+  const [serviceStatus, setServiceStatus] = useState<"Active" | "Inactive">("Active");
+  const [serviceThumbnail, setServiceThumbnail] = useState("");
 
   // Membership form state
   const [editingPlan, setEditingPlan] = useState<MembershipPlan | null>(null);
@@ -471,6 +483,24 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
       }
     });
 
+    // 16. Listen to Services Marketplace items
+    const unsubServices = onSnapshot(query(collection(db, "services"), orderBy("createdAt", "desc")), (snapshot) => {
+      const list: Service[] = [];
+      snapshot.forEach((doc) => {
+        list.push({ id: doc.id, ...doc.data() } as Service);
+      });
+      setAdminServices(list);
+    }, (err) => console.error("Admin Services listen error:", err));
+
+    // 17. Listen to Services purchases
+    const unsubServicePurchases = onSnapshot(collection(db, "servicePurchases"), (snapshot) => {
+      const list: ServicePurchase[] = [];
+      snapshot.forEach((doc) => {
+        list.push({ id: doc.id, ...doc.data() } as ServicePurchase);
+      });
+      setAdminServicePurchases(list);
+    }, (err) => console.error("Admin Service purchases listen error:", err));
+
     return () => {
       unsubUsers();
       unsubPayments();
@@ -487,16 +517,20 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
       unsubRevenue();
       unsubRevenueTx();
       unsubSocial();
+      unsubServices();
+      unsubServicePurchases();
     };
   }, []);
 
   // Write audit log helper
-  const writeAuditLog = async (action: string) => {
+  const writeAuditLog = async (action: string, targetUser: string = "System", description: string = "") => {
     try {
       await addDoc(collection(db, "auditLogs"), {
         adminName: adminUser.username,
         adminId: adminUser.userId,
         action,
+        targetUser,
+        description,
         date: new Date().toLocaleDateString("en-IN"),
         time: new Date().toLocaleTimeString("en-IN"),
         ip: "127.0.0.1", // Client sandbox fallback
@@ -679,9 +713,16 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
           isRead: false,
           type: "general",
         });
+
+        const diff = Number(editWalletBalance) - (editingUser.walletBalance || 0);
+        if (diff > 0) {
+          await writeAuditLog("Balance Increased", editingUser.username, `Balance adjusted manually from ₹${editingUser.walletBalance || 0} to ₹${editWalletBalance} (+₹${diff})`);
+        } else {
+          await writeAuditLog("Balance Decreased", editingUser.username, `Balance adjusted manually from ₹${editingUser.walletBalance || 0} to ₹${editWalletBalance} (-₹${Math.abs(diff)})`);
+        }
       }
 
-      await writeAuditLog(`Edited user profile: ${editingUser.username} (${editingUser.userId})`);
+      await writeAuditLog("Settings Updated", editingUser.username, `Edited user profile settings: ${editingUser.username} (${editingUser.userId})`);
       alert("User profile updated successfully!");
       setEditingUser(null);
     } catch (err) {
@@ -767,7 +808,7 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
         type: "general",
       });
 
-      await writeAuditLog(`Banned user: ${banningUser.username} (${banningUser.userId}) - Duration: ${banDuration}`);
+      await writeAuditLog("User Banned", banningUser.username, `Suspended user for ${banDuration}. Reason: ${banReason.trim() || "No reason specified"}`);
       alert(`User suspended successfully for ${banDuration}.`);
       setBanningUser(null);
     } catch (err) {
@@ -801,7 +842,7 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
         type: "general",
       });
 
-      await writeAuditLog(`Unbanned user: ${user.username} (${user.userId})`);
+      await writeAuditLog("User Unbanned", user.username, "Suspension lifted manually");
       alert("User account restored to Active status.");
     } catch (err) {
       console.error(err);
@@ -885,7 +926,9 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
         });
       });
 
-      await writeAuditLog(`Credited ₹${amountToAdd} manually to user ID ${targetUserId}. Remarks: ${manualRemark}`);
+      const userRec = users.find(u => u.userId === targetUserId);
+      const targetUserLabel = userRec ? userRec.username : targetUserId;
+      await writeAuditLog("Balance Increased", targetUserLabel, `Credited ₹${amountToAdd} manually. Remarks: ${manualRemark || "Adjustment"}`);
 
       setManualSuccess(true);
       setManualAmount("");
@@ -1067,7 +1110,7 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
         });
       });
 
-      await writeAuditLog(`Approved payment request ID ${payment.id} for user ${payment.username} of ₹${payment.totalAmount}`);
+      await writeAuditLog("Payment Approved", payment.username, `Approved payment request ID ${payment.id} of ₹${payment.totalAmount}`);
       setActiveRemark("");
       setActiveTxId("");
     } catch (err: any) {
@@ -1096,7 +1139,9 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
         type: "payment",
       });
 
-      await writeAuditLog(`Rejected payment request ID ${paymentId} of amount ₹${amount}`);
+      const userRec = users.find(u => u.userId === userId);
+      const usernameLabel = userRec ? userRec.username : userId;
+      await writeAuditLog("Payment Rejected", usernameLabel, `Rejected payment request ID ${paymentId} of ₹${amount}. Remarks: ${activeRemark || "Unverified leads."}`);
       setActiveRemark("");
     } catch (err) {
       handleFirestoreError(err, OperationType.UPDATE, `payments/${paymentId}`);
@@ -1169,6 +1214,17 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
           type: "withdrawal",
         });
       });
+
+      let actionName = "Withdrawal Updated";
+      let descString = `Withdrawal request ID ${withdrawal.id} status updated to ${newStatus}`;
+      if (newStatus === "Completed" || newStatus === "Approved") {
+        actionName = "Withdrawal Approved";
+        descString = `Approved withdrawal of ₹${withdrawal.withdrawalAmount} for user ${withdrawal.username || withdrawal.userId}`;
+      } else if (newStatus === "Rejected") {
+        actionName = "Withdrawal Rejected";
+        descString = `Rejected withdrawal of ₹${withdrawal.withdrawalAmount} for user ${withdrawal.username || withdrawal.userId}. Remarks: ${activeRemark || "None"}`;
+      }
+      await writeAuditLog(actionName, withdrawal.username || withdrawal.userId, descString);
 
       setActiveRemark("");
     } catch (err: any) {
@@ -1392,7 +1448,7 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
         challengeVideoUrl: challengeVideoUrl.trim(),
       };
       await setDoc(settingsRef, payload);
-      await writeAuditLog("Updated Website Settings");
+      await writeAuditLog("Settings Updated", "System", "Updated dynamic platform configurations, branding details, and static page values");
       alert("Website settings saved and deployed globally!");
     } catch (err) {
       console.error(err);
@@ -1418,7 +1474,7 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
         pinterestUrl: pinUrl.trim(),
         order: socOrder
       });
-      await writeAuditLog("Updated Social Media Settings");
+      await writeAuditLog("Settings Updated", "System", "Updated social media icons status, order, and URLs");
       setSocialSuccess(true);
       setTimeout(() => setSocialSuccess(false), 4000);
       alert("Social Settings saved and deployed website-wide!");
@@ -1513,7 +1569,7 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
       };
 
       await setDoc(doc(db, "settings", "fees"), data);
-      await writeAuditLog("Updated Platform Fees Configuration");
+      await writeAuditLog("Settings Updated", "System", "Updated platform fee settings, withdrawal charges, and entry parameters");
       setPlatformFeesSuccess(true);
       setTimeout(() => setPlatformFeesSuccess(false), 4000);
     } catch (err: any) {
@@ -1542,7 +1598,7 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
       };
 
       await setDoc(doc(db, "settings", "withdrawals"), data);
-      await writeAuditLog("Updated Withdrawal Scheduling Rules");
+      await writeAuditLog("Settings Updated", "System", "Updated withdrawal scheduling, minimums/maximums limits, and timing gates");
       setWithdrawConfigSuccess(true);
       setTimeout(() => setWithdrawConfigSuccess(false), 4000);
     } catch (err: any) {
@@ -1996,6 +2052,272 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
     document.body.removeChild(link);
   };
 
+  // --- SERVICES ADMINISTRATION CONTROLLERS ---
+  const handleSaveService = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!serviceName.trim() || servicePrice === "") return;
+
+    setActionLoading("save_service");
+    try {
+      if (editingService) {
+        // Edit Service
+        await updateDoc(doc(db, "services", editingService.id), {
+          name: serviceName.trim(),
+          description: serviceDescription.trim(),
+          price: Number(servicePrice),
+          status: serviceStatus,
+          thumbnail: serviceThumbnail.trim(),
+        });
+        await writeAuditLog("Service Edited", "System", `Edited premium service details: "${serviceName.trim()}" (Price: ₹${servicePrice})`);
+        alert("Service updated successfully!");
+      } else {
+        // Create Service
+        await addDoc(collection(db, "services"), {
+          name: serviceName.trim(),
+          description: serviceDescription.trim(),
+          price: Number(servicePrice),
+          status: serviceStatus,
+          thumbnail: serviceThumbnail.trim(),
+          createdDate: new Date().toLocaleDateString("en-IN"),
+          createdAt: serverTimestamp(),
+        });
+        await writeAuditLog("Service Created", "System", `Created new premium service marketplace listing: "${serviceName.trim()}" (Price: ₹${servicePrice})`);
+        alert("Service created successfully!");
+      }
+      
+      // Clear form
+      setEditingService(null);
+      setServiceName("");
+      setServiceDescription("");
+      setServicePrice("");
+      setServiceStatus("Active");
+      setServiceThumbnail("");
+    } catch (err: any) {
+      console.error(err);
+      alert("Failed to save service: " + err.message);
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleDeleteService = async (id: string, name: string) => {
+    if (!window.confirm(`Are you sure you want to delete service "${name}"? This cannot be undone.`)) {
+      return;
+    }
+    setActionLoading(`delete_service_${id}`);
+    try {
+      await deleteDoc(doc(db, "services", id));
+      await writeAuditLog("Service Deleted", "System", `Deleted premium service from marketplace: "${name}"`);
+      alert("Service deleted successfully!");
+    } catch (err: any) {
+      console.error(err);
+      alert("Failed to delete service: " + err.message);
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  // --- MEMBERSHIP ADMINISTRATION CONTROLLERS ---
+  const handleCancelUserMembership = async (userRecord: UserProfile) => {
+    if (!window.confirm(`Are you sure you want to cancel ${userRecord.username}'s membership?`)) {
+      return;
+    }
+    setActionLoading(`cancel_memb_${userRecord.userId}`);
+    try {
+      const userRef = doc(db, "users", userRecord.userId);
+      await updateDoc(userRef, {
+        isPremium: false,
+        membershipStatus: "Cancelled",
+        premiumExpiryDate: null,
+      });
+
+      // Send Notification
+      await addDoc(collection(db, "notifications"), {
+        userId: userRecord.userId,
+        title: "👑 Membership Cancelled",
+        body: "Your Premium Membership has been cancelled by the administrator.",
+        timestamp: serverTimestamp(),
+        isRead: false,
+        type: "system",
+      });
+
+      // Write Audit Log
+      await writeAuditLog("Membership Cancelled", userRecord.username, `Cancelled membership plan ${userRecord.vipTagText || "Premium"}`);
+      alert("Membership cancelled successfully.");
+    } catch (err: any) {
+      console.error(err);
+      alert("Failed to cancel membership: " + err.message);
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleExpireUserMembership = async (userRecord: UserProfile) => {
+    if (!window.confirm(`Are you sure you want to manually expire ${userRecord.username}'s membership?`)) {
+      return;
+    }
+    setActionLoading(`expire_memb_${userRecord.userId}`);
+    try {
+      const userRef = doc(db, "users", userRecord.userId);
+      await updateDoc(userRef, {
+        isPremium: false,
+        membershipStatus: "Expired",
+      });
+
+      // Send Notification
+      await addDoc(collection(db, "notifications"), {
+        userId: userRecord.userId,
+        title: "👑 Membership Expired",
+        body: "Your Premium Membership has expired manually by administrative update.",
+        timestamp: serverTimestamp(),
+        isRead: false,
+        type: "system",
+      });
+
+      // Write Audit Log
+      await writeAuditLog("Membership Expired", userRecord.username, `Expired membership manually`);
+      alert("Membership expired successfully.");
+    } catch (err: any) {
+      console.error(err);
+      alert("Failed to expire membership: " + err.message);
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleExtendUserMembership = async (userRecord: UserProfile, months: number) => {
+    setActionLoading(`extend_memb_${userRecord.userId}`);
+    try {
+      const userRef = doc(db, "users", userRecord.userId);
+      let baseDate = new Date();
+      if (userRecord.premiumExpiryDate && userRecord.premiumExpiryDate !== "Lifetime") {
+        const currentExp = new Date(userRecord.premiumExpiryDate);
+        if (currentExp.getTime() > Date.now()) {
+          baseDate = currentExp;
+        }
+      }
+      baseDate.setMonth(baseDate.getMonth() + months);
+      const newExpiry = baseDate.toISOString();
+
+      await updateDoc(userRef, {
+        isPremium: true,
+        membershipStatus: "Active",
+        premiumExpiryDate: newExpiry,
+      });
+
+      // Send Notification
+      await addDoc(collection(db, "notifications"), {
+        userId: userRecord.userId,
+        title: "👑 Membership Extended",
+        body: `Your Premium Membership has been extended by ${months} month(s). New expiry date: ${baseDate.toLocaleDateString("en-IN")}.`,
+        timestamp: serverTimestamp(),
+        isRead: false,
+        type: "system",
+      });
+
+      // Write Audit Log
+      await writeAuditLog("Membership Extended", userRecord.username, `Extended membership by ${months} months. New expiry: ${baseDate.toLocaleDateString("en-IN")}`);
+      alert(`Membership extended by ${months} month(s).`);
+    } catch (err: any) {
+      console.error(err);
+      alert("Failed to extend membership: " + err.message);
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleChangeUserMembershipPlan = async (userRecord: UserProfile, plan: MembershipPlan) => {
+    setActionLoading(`change_plan_${userRecord.userId}`);
+    try {
+      const userRef = doc(db, "users", userRecord.userId);
+      const now = new Date();
+      let expiryVal: any = "Lifetime";
+      if (!plan.isLifetime) {
+        const duration = plan.durationMonths || 1;
+        expiryVal = new Date(now.setMonth(now.getMonth() + duration)).toISOString();
+      }
+
+      await updateDoc(userRef, {
+        isPremium: true,
+        membershipStatus: "Active",
+        premiumPlanId: plan.id,
+        premiumExpiryDate: expiryVal,
+        premiumBadgeStyle: (plan as any).badgeStyle || "👑 VIP MEMBER",
+        vipTagText: (plan as any).badgeStyle || "👑 VIP MEMBER",
+      });
+
+      // Send Notification
+      await addDoc(collection(db, "notifications"), {
+        userId: userRecord.userId,
+        title: "👑 Membership Plan Updated!",
+        body: `Your Premium Membership plan was changed by administrator to "${plan.name}". Expiry: ${plan.isLifetime ? "Lifetime" : new Date(expiryVal).toLocaleDateString("en-IN")}.`,
+        timestamp: serverTimestamp(),
+        isRead: false,
+        type: "system",
+      });
+
+      // Write Audit Log
+      await writeAuditLog("Membership Plan Changed", userRecord.username, `Changed plan to ${plan.name} (Price: ₹${plan.price})`);
+      alert(`Membership plan changed to ${plan.name}.`);
+    } catch (err: any) {
+      console.error(err);
+      alert("Failed to change membership plan: " + err.message);
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  // --- SECURITY AUDIT LOG CONTROLLERS ---
+  const handleExportAuditLogs = () => {
+    try {
+      const headers = ["Date", "Time", "Founder/Admin Name", "Action", "Target User", "Description", "IP Address"];
+      const rows = auditLogs.map(log => [
+        log.date,
+        log.time,
+        log.adminName,
+        log.action,
+        log.targetUser || "System",
+        log.description || "",
+        log.ip || "127.0.0.1"
+      ]);
+
+      const csvContent = "data:text/csv;charset=utf-8," 
+        + [headers.join(","), ...rows.map(e => e.map(val => `"${String(val).replace(/"/g, '""')}"`).join(","))].join("\n");
+      
+      const encodedUri = encodeURI(csvContent);
+      const link = document.createElement("a");
+      link.setAttribute("href", encodedUri);
+      link.setAttribute("download", `LWA_Audit_Logs_${new Date().toLocaleDateString("en-IN")}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    } catch (err: any) {
+      console.error(err);
+      alert("Failed to export logs: " + err.message);
+    }
+  };
+
+  const handleDeleteAllAuditLogs = async () => {
+    if (!window.confirm("ARE YOU ABSOLUTELY SURE you want to delete ALL Audit Logs? This is a highly destructive administrative action and cannot be undone.")) {
+      return;
+    }
+    setActionLoading("delete_all_logs");
+    try {
+      const batch = writeBatch(db);
+      const logsSnap = await getDocs(collection(db, "auditLogs"));
+      logsSnap.forEach((d) => {
+        batch.delete(d.ref);
+      });
+      await batch.commit();
+      alert("All audit logs deleted successfully.");
+    } catch (err: any) {
+      console.error(err);
+      alert("Failed to delete audit logs: " + err.message);
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
   // --- Search Filtering ---
   const filteredUsers = users.filter(u => {
     const term = searchQuery.toLowerCase().trim();
@@ -2044,6 +2366,9 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
             { id: "payments", label: "Payments", show: hasPermission("managePayments") },
             { id: "withdrawals", label: "Withdrawals", show: hasPermission("manageWithdrawals") },
             { id: "challenges_review", label: "Challenges Review", show: hasPermission("manageChallenges") },
+            { id: "services", label: "🛠️ Services Manager", show: hasPermission("manageSettings") },
+            { id: "memberships_manage", label: "👥 Memberships Manager", show: hasPermission("manageSettings") },
+            { id: "audit_logs", label: "📜 Audit Logs", show: hasPermission("manageSettings") },
             { id: "notifications", label: "Broadcast Notices", show: hasPermission("manageNotifications") },
             { id: "membership", label: "👑 Premium Plans", show: hasPermission("manageSettings") },
             { id: "fees", label: "💸 Fees Manager", show: hasPermission("manageSettings") },
@@ -3767,6 +4092,532 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
                   ))
                 )}
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* SERVICES MANAGER TAB */}
+      {activeTab === "services" && (
+        <div className="space-y-6 animate-fade-in font-sans">
+          {/* Create/Edit Form */}
+          <div className="bg-slate-950/20 border border-zinc-850 rounded-2xl p-6 shadow-xl space-y-4">
+            <h3 className="text-sm font-display font-semibold text-zinc-100 uppercase tracking-wider flex items-center space-x-2">
+              <Sparkles className="w-5 h-5 text-amber-500" />
+              <span>{editingService ? "Edit Service Configuration" : "Add New Premium Service"}</span>
+            </h3>
+            <p className="text-xs text-zinc-400">
+              Create services that users can purchase directly from their wallet balances.
+            </p>
+
+            <form onSubmit={handleSaveService} className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2">
+              <div className="space-y-2">
+                <label className="text-[10px] uppercase font-mono tracking-wider text-zinc-400">Service Name *</label>
+                <input
+                  type="text"
+                  required
+                  value={serviceName}
+                  onChange={(e) => setServiceName(e.target.value)}
+                  placeholder="e.g. Premium Support, 1-on-1 Consultation"
+                  className="w-full bg-slate-950/60 border border-zinc-800 rounded-lg p-2 text-xs text-zinc-200 focus:outline-none focus:border-red-500"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-[10px] uppercase font-mono tracking-wider text-zinc-400">Price (INR) *</label>
+                <input
+                  type="number"
+                  required
+                  min="0"
+                  value={servicePrice}
+                  onChange={(e) => setServicePrice(e.target.value === "" ? "" : Number(e.target.value))}
+                  placeholder="e.g. 499"
+                  className="w-full bg-slate-950/60 border border-zinc-800 rounded-lg p-2 text-xs text-zinc-200 focus:outline-none focus:border-red-500 font-mono"
+                />
+              </div>
+
+              <div className="space-y-2 md:col-span-2">
+                <label className="text-[10px] uppercase font-mono tracking-wider text-zinc-400">Service Description</label>
+                <textarea
+                  value={serviceDescription}
+                  onChange={(e) => setServiceDescription(e.target.value)}
+                  placeholder="Describe what the user gets when they purchase this premium service..."
+                  rows={3}
+                  className="w-full bg-slate-950/60 border border-zinc-800 rounded-lg p-2 text-xs text-zinc-200 focus:outline-none focus:border-red-500"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-[10px] uppercase font-mono tracking-wider text-zinc-400">Thumbnail Image URL</label>
+                <input
+                  type="text"
+                  value={serviceThumbnail}
+                  onChange={(e) => setServiceThumbnail(e.target.value)}
+                  placeholder="https://example.com/image.png (Optional)"
+                  className="w-full bg-slate-950/60 border border-zinc-800 rounded-lg p-2 text-xs text-zinc-200 focus:outline-none focus:border-red-500"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-[10px] uppercase font-mono tracking-wider text-zinc-400">Availability Status</label>
+                <select
+                  value={serviceStatus}
+                  onChange={(e) => setServiceStatus(e.target.value as any)}
+                  className="w-full bg-slate-950/60 border border-zinc-800 rounded-lg p-2 text-xs text-zinc-200 focus:outline-none focus:border-red-500"
+                >
+                  <option value="Active">Active / Visible</option>
+                  <option value="Inactive">Inactive / Suspended</option>
+                </select>
+              </div>
+
+              <div className="md:col-span-2 flex justify-end gap-2 pt-2">
+                {editingService && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEditingService(null);
+                      setServiceName("");
+                      setServiceDescription("");
+                      setServicePrice("");
+                      setServiceStatus("Active");
+                      setServiceThumbnail("");
+                    }}
+                    className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-lg text-xs font-semibold"
+                  >
+                    Cancel
+                  </button>
+                )}
+                <button
+                  type="submit"
+                  disabled={actionLoading === "save_service"}
+                  className="px-5 py-2 bg-red-600 hover:bg-red-500 text-white rounded-lg text-xs font-bold uppercase tracking-wider flex items-center space-x-1"
+                >
+                  <Check className="w-4 h-4" />
+                  <span>{actionLoading === "save_service" ? "Saving..." : (editingService ? "Save Service" : "Add Service")}</span>
+                </button>
+              </div>
+            </form>
+          </div>
+
+          {/* Service Statistics Row */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div className="bg-zinc-950/40 p-4 border border-zinc-800/80 rounded-xl space-y-1">
+              <span className="text-[10px] uppercase tracking-widest font-mono text-zinc-500">Total Services</span>
+              <p className="text-xl font-display font-black text-zinc-100">{adminServices.length}</p>
+            </div>
+            <div className="bg-zinc-950/40 p-4 border border-zinc-800/80 rounded-xl space-y-1">
+              <span className="text-[10px] uppercase tracking-widest font-mono text-zinc-500">Total Purchases</span>
+              <p className="text-xl font-display font-black text-zinc-100">{adminServicePurchases.length}</p>
+            </div>
+            <div className="bg-zinc-950/40 p-4 border border-zinc-800/80 rounded-xl space-y-1">
+              <span className="text-[10px] uppercase tracking-widest font-mono text-zinc-500">Gross Services Revenue</span>
+              <p className="text-xl font-display font-black text-emerald-400 font-mono">
+                ₹{adminServicePurchases.reduce((acc, p) => acc + (p.price || 0), 0).toLocaleString("en-IN")}
+              </p>
+            </div>
+          </div>
+
+          {/* Active Services List */}
+          <div className="bg-slate-950/20 border border-zinc-850 rounded-2xl p-6 shadow-xl">
+            <h3 className="text-sm font-display font-semibold text-zinc-100 uppercase tracking-wider mb-4">
+              Configured Services Marketplace
+            </h3>
+
+            {adminServices.length === 0 ? (
+              <div className="text-center py-12 text-zinc-500 italic text-xs">
+                No custom services configured yet. Use the panel above to add your first service.
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {adminServices.map((service) => {
+                  const sPurchases = adminServicePurchases.filter(p => p.serviceId === service.id);
+                  const totalPurchases = sPurchases.length;
+                  const totalRevenue = sPurchases.reduce((acc, cur) => acc + (cur.price || 0), 0);
+                  const activeBuyersCount = new Set(sPurchases.map(p => p.userId)).size;
+
+                  return (
+                    <div key={service.id} className="bg-zinc-950/40 border border-zinc-800/80 rounded-xl p-4 flex flex-col justify-between space-y-4">
+                      <div className="space-y-2">
+                        <div className="flex justify-between items-start">
+                          <div>
+                            <h4 className="text-xs font-bold text-zinc-100">{service.name}</h4>
+                            <span className="text-[10px] text-zinc-400 font-mono font-bold block mt-0.5">
+                              Price: ₹{service.price.toLocaleString("en-IN")}
+                            </span>
+                          </div>
+                          <span className={`px-2 py-0.5 rounded text-[8px] font-mono uppercase font-bold ${
+                            service.status === "Active" ? "bg-emerald-500/20 text-emerald-400" : "bg-zinc-800 text-zinc-400"
+                          }`}>
+                            {service.status}
+                          </span>
+                        </div>
+                        {service.thumbnail && (
+                          <img
+                            src={service.thumbnail}
+                            alt={service.name}
+                            referrerPolicy="no-referrer"
+                            className="w-full h-24 object-cover rounded-lg border border-zinc-900 mt-2"
+                            onError={(e) => { (e.target as any).style.display = "none"; }}
+                          />
+                        )}
+                        <p className="text-[10px] text-zinc-400 line-clamp-3 mt-2">
+                          {service.description || "No description provided."}
+                        </p>
+                      </div>
+
+                      <div className="pt-2 border-t border-zinc-900 flex justify-between items-center text-[9px] font-mono text-zinc-500">
+                        <div>
+                          <span className="block">Purchases: <strong className="text-zinc-300">{totalPurchases}</strong></span>
+                          <span className="block">Revenue: <strong className="text-emerald-400">₹{totalRevenue}</strong></span>
+                          <span className="block">Active Buyers: <strong className="text-zinc-300">{activeBuyersCount}</strong></span>
+                        </div>
+                        <div className="flex space-x-1.5">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditingService(service);
+                              setServiceName(service.name);
+                              setServiceDescription(service.description || "");
+                              setServicePrice(service.price);
+                              setServiceStatus(service.status || "Active");
+                              setServiceThumbnail(service.thumbnail || "");
+                            }}
+                            className="p-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded transition-colors"
+                            title="Edit Service"
+                          >
+                            <Edit className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteService(service.id, service.name)}
+                            className="p-1.5 bg-red-950/30 hover:bg-red-900/40 text-red-400 rounded transition-colors"
+                            title="Delete Service"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* MEMBERSHIPS MANAGER TAB */}
+      {activeTab === "memberships_manage" && (
+        <div className="space-y-6 animate-fade-in font-sans">
+          {/* Controls Bar */}
+          <div className="bg-slate-950/20 border border-zinc-850 rounded-2xl p-6 shadow-xl space-y-4">
+            <h3 className="text-sm font-display font-semibold text-zinc-100 uppercase tracking-wider flex items-center space-x-2">
+              <Users className="w-5 h-5 text-amber-500" />
+              <span>Affiliate Memberships Administration</span>
+            </h3>
+            <p className="text-xs text-zinc-400">
+              Change user premium plans, cancel/expire memberships manually, extend durations, and view purchase audit trials.
+            </p>
+
+            <div className="relative max-w-md">
+              <Search className="w-4 h-4 text-zinc-500 absolute left-3 top-2.5" />
+              <input
+                type="text"
+                placeholder="Search user by email or username to configure..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full bg-slate-950/60 border border-zinc-800 rounded-lg pl-9 pr-4 py-2 text-xs text-zinc-200 focus:outline-none focus:border-red-500"
+              />
+            </div>
+          </div>
+
+          {/* Active Members Table */}
+          <div className="bg-slate-950/20 border border-zinc-850 rounded-2xl p-6 shadow-xl overflow-x-auto">
+            <h3 className="text-sm font-display font-semibold text-zinc-100 uppercase tracking-wider mb-4">
+              Affiliates Membership Status List
+            </h3>
+
+            <table className="w-full text-left border-collapse min-w-[800px]">
+              <thead>
+                <tr className="border-b border-zinc-900 text-[10px] uppercase font-mono tracking-wider text-zinc-500">
+                  <th className="py-2.5 px-3">User Profile</th>
+                  <th className="py-2.5 px-3">Role</th>
+                  <th className="py-2.5 px-3">Membership status</th>
+                  <th className="py-2.5 px-3">Badge Label</th>
+                  <th className="py-2.5 px-3">Expiry Date</th>
+                  <th className="py-2.5 px-3 text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredUsers.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} className="text-center py-8 text-zinc-500 text-xs italic">
+                      No matching user accounts found.
+                    </td>
+                  </tr>
+                ) : (
+                  filteredUsers.map((userRecord) => {
+                    const status = userRecord.membershipStatus || (userRecord.isPremium ? "Active" : "None");
+                    let badgeColor = "bg-zinc-800 text-zinc-400";
+                    if (status === "Active") badgeColor = "bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 shadow-[0_0_10px_rgba(16,185,129,0.1)]";
+                    if (status === "Cancelled") badgeColor = "bg-red-500/10 border border-red-500/20 text-red-400";
+                    if (status === "Expired") badgeColor = "bg-amber-500/10 border border-amber-500/20 text-amber-400";
+
+                    return (
+                      <tr key={userRecord.userId} className="border-b border-zinc-900 hover:bg-slate-950/10 text-xs">
+                        <td className="py-3 px-3">
+                          <div className="font-semibold text-zinc-200">{userRecord.username}</div>
+                          <div className="text-[10px] text-zinc-500 font-mono">{userRecord.email}</div>
+                        </td>
+                        <td className="py-3 px-3 uppercase text-[9px] font-mono text-zinc-400">
+                          {userRecord.role}
+                        </td>
+                        <td className="py-3 px-3">
+                          <span className={`px-2 py-0.5 rounded text-[9px] font-mono font-bold ${badgeColor}`}>
+                            {status}
+                          </span>
+                        </td>
+                        <td className="py-3 px-3 text-amber-400 font-semibold font-mono text-[10px]">
+                          {userRecord.vipTagText || userRecord.premiumBadgeStyle || (userRecord.isPremium ? "👑 VIP MEMBER" : "None")}
+                        </td>
+                        <td className="py-3 px-3 text-zinc-400 font-mono text-[10px]">
+                          {userRecord.premiumExpiryDate ? (
+                            userRecord.premiumExpiryDate === "Lifetime" ? "Lifetime Plan" : new Date(userRecord.premiumExpiryDate).toLocaleDateString("en-IN")
+                          ) : (
+                            "N/A"
+                          )}
+                        </td>
+                        <td className="py-3 px-3 text-right">
+                          <div className="flex flex-wrap items-center justify-end gap-1.5">
+                            {/* Extend Duration Select */}
+                            <select
+                              onChange={(e) => {
+                                const val = e.target.value;
+                                if (val) {
+                                  handleExtendUserMembership(userRecord, Number(val));
+                                  e.target.value = "";
+                                }
+                              }}
+                              className="bg-zinc-900 hover:bg-zinc-850 border border-zinc-800 text-[10px] text-zinc-300 rounded p-1 max-w-[110px]"
+                              defaultValue=""
+                            >
+                              <option value="" disabled>➕ Extend Duration</option>
+                              <option value="1">+1 Month</option>
+                              <option value="3">+3 Months</option>
+                              <option value="6">+6 Months</option>
+                              <option value="12">+12 Months</option>
+                            </select>
+
+                            {/* Plan Swapper Select */}
+                            <select
+                              onChange={(e) => {
+                                const pId = e.target.value;
+                                if (pId) {
+                                  const p = plans.find(pl => pl.id === pId);
+                                  if (p) handleChangeUserMembershipPlan(userRecord, p);
+                                  e.target.value = "";
+                                }
+                              }}
+                              className="bg-zinc-900 hover:bg-zinc-850 border border-zinc-800 text-[10px] text-zinc-300 rounded p-1 max-w-[110px]"
+                              defaultValue=""
+                            >
+                              <option value="" disabled>🔄 Swivel Plan</option>
+                              {plans.map(p => (
+                                <option key={p.id} value={p.id}>{p.name}</option>
+                              ))}
+                            </select>
+
+                            {/* Expire / Cancel action buttons */}
+                            {userRecord.isPremium && (
+                              <>
+                                <button
+                                  type="button"
+                                  onClick={() => handleExpireUserMembership(userRecord)}
+                                  className="px-2 py-1 bg-amber-950/20 hover:bg-amber-900/30 text-amber-400 border border-amber-500/10 rounded text-[9px] font-bold uppercase transition-colors"
+                                >
+                                  Expire
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleCancelUserMembership(userRecord)}
+                                  className="px-2 py-1 bg-red-950/20 hover:bg-red-900/30 text-red-400 border border-red-500/10 rounded text-[9px] font-bold uppercase transition-colors"
+                                >
+                                  Cancel
+                                </button>
+                              </>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Membership Purchase History Logs */}
+          <div className="bg-slate-950/20 border border-zinc-850 rounded-2xl p-6 shadow-xl">
+            <h3 className="text-sm font-display font-semibold text-zinc-100 uppercase tracking-wider mb-4 flex items-center space-x-2">
+              <Calendar className="w-5 h-5 text-zinc-400" />
+              <span>Membership Purchase History Records</span>
+            </h3>
+
+            <div className="space-y-2.5 max-h-[350px] overflow-y-auto pr-1">
+              {revenueTransactions.filter(tx => tx.type === "premium_purchase").length === 0 ? (
+                <div className="text-center py-12 text-zinc-500 italic text-xs font-sans">
+                  No membership purchase ledger entries recorded yet.
+                </div>
+              ) : (
+                revenueTransactions.filter(tx => tx.type === "premium_purchase").map((tx) => (
+                  <div key={tx.id} className="p-3 bg-zinc-950/40 border border-zinc-900 rounded-xl flex justify-between items-center text-xs">
+                    <div>
+                      <span className="font-semibold text-zinc-200 block truncate max-w-[250px]">{tx.description}</span>
+                      <span className="text-[10px] text-zinc-500 font-mono block mt-0.5">
+                        Buyer: {tx.username} • {tx.timestamp?.seconds ? new Date(tx.timestamp.seconds * 1000).toLocaleString("en-IN") : "Just now"}
+                      </span>
+                    </div>
+                    <span className="text-emerald-400 font-bold font-mono ml-2">
+                      +₹{tx.amount}
+                    </span>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* AUDIT LOGS TAB */}
+      {activeTab === "audit_logs" && (
+        <div className="space-y-6 animate-fade-in font-sans">
+          {/* Controls Bar */}
+          <div className="bg-slate-950/20 border border-zinc-850 rounded-2xl p-6 shadow-xl flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+            <div className="space-y-1">
+              <h3 className="text-sm font-display font-semibold text-zinc-100 uppercase tracking-wider flex items-center space-x-2">
+                <Terminal className="w-5 h-5 text-amber-500 animate-pulse" />
+                <span>Security Audit Log Control Room</span>
+              </h3>
+              <p className="text-xs text-zinc-400">
+                Track administrative operations, balance increases/decreases, security elevation, login trails, and website settings modifications.
+              </p>
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={handleExportAuditLogs}
+                className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border border-zinc-700 rounded-lg text-xs font-bold uppercase tracking-wider flex items-center space-x-1"
+              >
+                <Download className="w-4 h-4" />
+                <span>Export logs (CSV)</span>
+              </button>
+              
+              {(adminUser.role === "founder" || adminUser.role === "admin") && (
+                <button
+                  type="button"
+                  onClick={handleDeleteAllAuditLogs}
+                  disabled={actionLoading === "delete_all_logs"}
+                  className="px-4 py-2 bg-red-950/30 hover:bg-red-900/40 border border-red-500/15 text-red-400 rounded-lg text-xs font-bold uppercase tracking-wider flex items-center space-x-1"
+                >
+                  <ShieldAlert className="w-4 h-4" />
+                  <span>{actionLoading === "delete_all_logs" ? "Deleting..." : "Delete All Logs"}</span>
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Live Records list */}
+          <div className="bg-slate-950/20 border border-zinc-850 rounded-2xl p-6 shadow-xl space-y-4">
+            <div className="flex flex-col md:flex-row gap-3">
+              <div className="relative flex-1">
+                <Search className="w-4 h-4 text-zinc-500 absolute left-3 top-2.5" />
+                <input
+                  type="text"
+                  placeholder="Search logs by Admin, Action, description..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="w-full bg-slate-950/60 border border-zinc-800 rounded-lg pl-9 pr-4 py-2 text-xs text-zinc-200 focus:outline-none focus:border-red-500"
+                />
+              </div>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse min-w-[750px]">
+                <thead>
+                  <tr className="border-b border-zinc-900 text-[10px] uppercase font-mono tracking-wider text-zinc-500">
+                    <th className="py-2.5 px-3">Timestamp (IST)</th>
+                    <th className="py-2.5 px-3">Admin Account</th>
+                    <th className="py-2.5 px-3">Operation Action</th>
+                    <th className="py-2.5 px-3">Target / Context</th>
+                    <th className="py-2.5 px-3">Description</th>
+                    <th className="py-2.5 px-3">IP Address</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {auditLogs.filter(log => {
+                    const term = searchQuery.toLowerCase().trim();
+                    if (!term) return true;
+                    return (
+                      log.adminName.toLowerCase().includes(term) ||
+                      log.action.toLowerCase().includes(term) ||
+                      (log.targetUser && log.targetUser.toLowerCase().includes(term)) ||
+                      (log.description && log.description.toLowerCase().includes(term))
+                    );
+                  }).length === 0 ? (
+                    <tr>
+                      <td colSpan={6} className="text-center py-8 text-zinc-500 text-xs italic">
+                        No audit logs captured inside this platform filter.
+                      </td>
+                    </tr>
+                  ) : (
+                    auditLogs.filter(log => {
+                      const term = searchQuery.toLowerCase().trim();
+                      if (!term) return true;
+                      return (
+                        log.adminName.toLowerCase().includes(term) ||
+                        log.action.toLowerCase().includes(term) ||
+                        (log.targetUser && log.targetUser.toLowerCase().includes(term)) ||
+                        (log.description && log.description.toLowerCase().includes(term))
+                      );
+                    }).map((log) => {
+                      let tagColor = "bg-zinc-800 text-zinc-400";
+                      if (log.action === "Login" || log.action === "Logout") tagColor = "bg-blue-500/10 border border-blue-500/20 text-blue-400";
+                      if (log.action === "Payment Approved" || log.action === "Withdrawal Approved" || log.action === "Balance Increased") tagColor = "bg-emerald-500/10 border border-emerald-500/20 text-emerald-400";
+                      if (log.action === "Payment Rejected" || log.action === "Withdrawal Rejected" || log.action === "Balance Decreased") tagColor = "bg-red-500/10 border border-red-500/20 text-red-400";
+                      if (log.action === "User Banned") tagColor = "bg-red-500/20 border border-red-500/30 text-red-500 font-bold";
+                      if (log.action === "Membership Purchased" || log.action === "Membership Plan Changed" || log.action === "Membership Extended") tagColor = "bg-purple-500/10 border border-purple-500/20 text-purple-400";
+                      if (log.action === "Membership Cancelled" || log.action === "Membership Expired") tagColor = "bg-amber-500/10 border border-amber-500/20 text-amber-400";
+                      if (log.action === "Settings Updated") tagColor = "bg-amber-500/10 border border-amber-500/20 text-amber-400";
+
+                      return (
+                        <tr key={log.id} className="border-b border-zinc-900 hover:bg-slate-950/10 text-[11px]">
+                          <td className="py-2.5 px-3 text-zinc-500 font-mono">
+                            {log.date} {log.time}
+                          </td>
+                          <td className="py-2.5 px-3 font-semibold text-zinc-300">
+                            {log.adminName}
+                          </td>
+                          <td className="py-2.5 px-3">
+                            <span className={`px-2 py-0.5 rounded text-[9px] font-mono font-bold ${tagColor}`}>
+                              {log.action}
+                            </span>
+                          </td>
+                          <td className="py-2.5 px-3 text-zinc-400 font-semibold">
+                            {log.targetUser || "System"}
+                          </td>
+                          <td className="py-2.5 px-3 text-zinc-400 font-sans leading-relaxed">
+                            {log.description}
+                          </td>
+                          <td className="py-2.5 px-3 text-zinc-600 font-mono">
+                            {log.ip || "127.0.0.1"}
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
             </div>
           </div>
         </div>

@@ -6,6 +6,7 @@ import { db, auth, handleFirestoreError, OperationType } from "../firebase";
 import { UserProfile, MembershipPlan } from "../types";
 import { hashPin } from "../utils/pin";
 import SocialMediaIcons from "./SocialMediaIcons";
+import { logAuditAction } from "../utils/audit";
 
 
 interface ProfileSectionProps {
@@ -383,7 +384,17 @@ export default function ProfileSection({ user, onUpdateUser }: ProfileSectionPro
         premiumPlanId: selectedPlan.id,
         premiumBadgeStyle: selectedPlan.badgeStyle || "👑 VIP MEMBER",
         vipTagText: selectedPlan.badgeStyle || "👑 VIP MEMBER",
+        membershipStatus: "Active",
       });
+
+      // Log Audit Trail
+      await logAuditAction(
+        user.userId,
+        user.username,
+        "Membership Purchased",
+        user.username,
+        `Purchased membership plan: ${selectedPlan.name} for ₹${selectedPlan.price}`
+      );
 
       setPurchaseSuccess(`Successfully upgraded to ${selectedPlan.name}! Welcome to Premium Membership!`);
       setPurchasePin("");

@@ -44,6 +44,7 @@ export interface UserProfile {
   premiumPlanId?: string;
   premiumBadgeStyle?: string; // e.g. "crown", "sparkle", "star"
   vipTagText?: string; // e.g. "VIP MEMBER", "ELITE MEMBER"
+  membershipStatus?: 'Active' | 'Expired' | 'Cancelled';
 }
 
 export interface PaymentRequest {
@@ -179,6 +180,8 @@ export interface AuditLog {
   time: string;
   ip?: string;
   timestamp: any; // Firestore Timestamp
+  targetUser?: string;
+  description?: string;
 }
 
 export interface LeaderboardUser {
@@ -284,5 +287,29 @@ export interface SocialSettings {
   pinterestEnabled: boolean;
   pinterestUrl: string;
   order: string[];
+}
+
+export interface Service {
+  id: string;
+  name: string;
+  description: string;
+  price: number;
+  createdDate: string;
+  status: "Active" | "Inactive";
+  thumbnail?: string;
+  createdAt: any;
+}
+
+export interface ServicePurchase {
+  id: string;
+  userId: string;
+  username: string;
+  serviceId: string;
+  serviceName: string;
+  price: number;
+  purchaseDate: string;
+  timestamp: any;
+  status: string;
+  hiddenByUser?: boolean;
 }
 
