@@ -313,3 +313,12 @@ export interface ServicePurchase {
   hiddenByUser?: boolean;
 }
 
+export interface DynamicSocialLink {
+  id: string;
+  platformName: string;
+  iconName: 'youtube' | 'instagram' | 'facebook' | 'telegram' | 'whatsapp' | 'linkedin' | 'twitter' | 'discord' | 'website' | 'custom';
+  url: string;
+  displayOrder: number;
+  enabled: boolean;
+}
+

@@ -1,105 +1,172 @@
 import React, { useEffect, useState } from "react";
 import { doc, onSnapshot } from "firebase/firestore";
 import { db } from "../firebase";
-import { Instagram, Youtube, Facebook } from "lucide-react";
-import { SocialSettings } from "../types";
+import {
+  Instagram,
+  Youtube,
+  Facebook,
+  Send,
+  MessageCircle,
+  Linkedin,
+  Twitter,
+  MessageSquare,
+  Globe,
+  Link2
+} from "lucide-react";
+import { DynamicSocialLink } from "../types";
 
 interface SocialMediaIconsProps {
   className?: string;
   iconClassName?: string;
 }
 
-const PinterestIcon = (props: React.SVGProps<SVGSVGElement>) => (
-  <svg viewBox="0 0 24 24" fill="currentColor" {...props}>
-    <path d="M12 0C5.37 0 0 5.37 0 12c0 5.08 3.16 9.42 7.63 11.16-.1-.95-.2-2.4.04-3.43.22-.93 1.4-5.93 1.4-5.93s-.36-.72-.36-1.77c0-1.66.96-2.9 2.17-2.9 1.02 0 1.51.77 1.51 1.69 0 1.03-.65 2.56-.99 3.98-.28 1.19.6 2.16 1.77 2.16 2.12 0 3.76-2.24 3.76-5.47 0-2.86-2.06-4.86-5-4.86-3.4 0-5.4 2.56-5.4 5.2 0 1.03.4 2.14.9 2.74.1.12.11.23.08.35-.09.37-.29 1.18-.33 1.34-.05.2-.17.25-.39.15-1.46-.68-2.37-2.81-2.37-4.52 0-3.68 2.67-7.06 7.71-7.06 4.05 0 7.2 2.89 7.2 6.75 0 4.03-2.54 7.27-6.07 7.27-1.19 0-2.3-.62-2.69-1.35l-.73 2.78c-.26 1.02-1 2.3-1.49 3.09C10.5 23.83 11.24 24 12 24c6.63 0 12-5.37 12-12S18.63 0 12 0z"/>
-  </svg>
-);
-
 export default function SocialMediaIcons({ className = "", iconClassName = "" }: SocialMediaIconsProps) {
-  const [settings, setSettings] = useState<SocialSettings | null>(null);
+  const [links, setLinks] = useState<DynamicSocialLink[]>([]);
 
   useEffect(() => {
     const unsub = onSnapshot(doc(db, "settings", "social"), (snapshot) => {
       if (snapshot.exists()) {
-        setSettings(snapshot.data() as SocialSettings);
+        const data = snapshot.data();
+        if (data.links && Array.isArray(data.links)) {
+          setLinks(data.links);
+        } else {
+          // Compatibility with old structure if present, or defaults
+          const legacyLinks: DynamicSocialLink[] = [];
+          if (data.instagramUrl) {
+            legacyLinks.push({
+              id: "legacy_ig",
+              platformName: "Instagram",
+              iconName: "instagram",
+              url: data.instagramUrl,
+              displayOrder: 1,
+              enabled: data.instagramEnabled !== false
+            });
+          }
+          if (data.youtubeUrl) {
+            legacyLinks.push({
+              id: "legacy_yt",
+              platformName: "YouTube",
+              iconName: "youtube",
+              url: data.youtubeUrl,
+              displayOrder: 2,
+              enabled: data.youtubeEnabled !== false
+            });
+          }
+          if (data.facebookUrl) {
+            legacyLinks.push({
+              id: "legacy_fb",
+              platformName: "Facebook",
+              iconName: "facebook",
+              url: data.facebookUrl,
+              displayOrder: 3,
+              enabled: data.facebookEnabled !== false
+            });
+          }
+          if (data.pinterestUrl) {
+            legacyLinks.push({
+              id: "legacy_pin",
+              platformName: "Pinterest",
+              iconName: "custom",
+              url: data.pinterestUrl,
+              displayOrder: 4,
+              enabled: data.pinterestEnabled !== false
+            });
+          }
+
+          if (legacyLinks.length > 0) {
+            setLinks(legacyLinks);
+          } else {
+            setLinks(getDefaultLinks());
+          }
+        }
       } else {
-        setSettings({
-          instagramEnabled: true,
-          instagramUrl: "https://instagram.com/learnwithankit",
-          youtubeEnabled: true,
-          youtubeUrl: "https://youtube.com/learnwithankit",
-          facebookEnabled: true,
-          facebookUrl: "https://facebook.com/learnwithankit",
-          pinterestEnabled: true,
-          pinterestUrl: "https://pinterest.com/learnwithankit",
-          order: ["instagram", "youtube", "facebook", "pinterest"]
-        });
+        setLinks(getDefaultLinks());
       }
     });
     return () => unsub();
   }, []);
 
-  if (!settings) return null;
+  const getDefaultLinks = (): DynamicSocialLink[] => [
+    { id: "default_yt", platformName: "YouTube", iconName: "youtube", url: "https://youtube.com/learnwithankit", displayOrder: 1, enabled: true },
+    { id: "default_ig", platformName: "Instagram", iconName: "instagram", url: "https://instagram.com/learnwithankit", displayOrder: 2, enabled: true },
+    { id: "default_fb", platformName: "Facebook", iconName: "facebook", url: "https://facebook.com/learnwithankit", displayOrder: 3, enabled: true },
+    { id: "default_tg", platformName: "Telegram", iconName: "telegram", url: "https://t.me/learnwithankit", displayOrder: 4, enabled: true },
+  ];
 
-  const getIcon = (key: string) => {
-    switch (key) {
-      case "instagram":
-        if (!settings.instagramEnabled) return null;
-        return {
-          icon: <Instagram className={`w-4 h-4 ${iconClassName}`} />,
-          url: settings.instagramUrl,
-          label: "Instagram",
-          hoverColor: "hover:text-pink-500 hover:scale-110",
-        };
+  const renderIcon = (iconName: string) => {
+    const sizeClass = `w-4 h-4 ${iconClassName}`;
+    switch (iconName) {
       case "youtube":
-        if (!settings.youtubeEnabled) return null;
-        return {
-          icon: <Youtube className={`w-4 h-4 ${iconClassName}`} />,
-          url: settings.youtubeUrl,
-          label: "YouTube",
-          hoverColor: "hover:text-red-500 hover:scale-110",
-        };
+        return <Youtube className={sizeClass} />;
+      case "instagram":
+        return <Instagram className={sizeClass} />;
       case "facebook":
-        if (!settings.facebookEnabled) return null;
-        return {
-          icon: <Facebook className={`w-4 h-4 ${iconClassName}`} />,
-          url: settings.facebookUrl,
-          label: "Facebook",
-          hoverColor: "hover:text-blue-500 hover:scale-110",
-        };
-      case "pinterest":
-        if (!settings.pinterestEnabled) return null;
-        return {
-          icon: <PinterestIcon className={`w-4 h-4 ${iconClassName}`} />,
-          url: settings.pinterestUrl,
-          label: "Pinterest",
-          hoverColor: "hover:text-red-600 hover:scale-110",
-        };
+        return <Facebook className={sizeClass} />;
+      case "telegram":
+        return <Send className={sizeClass} />;
+      case "whatsapp":
+        return <MessageCircle className={sizeClass} />;
+      case "linkedin":
+        return <Linkedin className={sizeClass} />;
+      case "twitter":
+        return <Twitter className={sizeClass} />;
+      case "discord":
+        return <MessageSquare className={sizeClass} />;
+      case "website":
+        return <Globe className={sizeClass} />;
       default:
-        return null;
+        return <Link2 className={sizeClass} />;
     }
   };
 
-  const activeOrder = settings.order || ["instagram", "youtube", "facebook", "pinterest"];
+  const getHoverColor = (iconName: string) => {
+    switch (iconName) {
+      case "youtube":
+        return "hover:text-red-500 hover:scale-110 hover:border-red-500/30";
+      case "instagram":
+        return "hover:text-pink-500 hover:scale-110 hover:border-pink-500/30";
+      case "facebook":
+        return "hover:text-blue-500 hover:scale-110 hover:border-blue-500/30";
+      case "telegram":
+        return "hover:text-sky-400 hover:scale-110 hover:border-sky-400/30";
+      case "whatsapp":
+        return "hover:text-emerald-500 hover:scale-110 hover:border-emerald-500/30";
+      case "linkedin":
+        return "hover:text-indigo-400 hover:scale-110 hover:border-indigo-400/30";
+      case "twitter":
+        return "hover:text-zinc-100 hover:scale-110 hover:border-zinc-100/30";
+      case "discord":
+        return "hover:text-indigo-500 hover:scale-110 hover:border-indigo-500/30";
+      case "website":
+        return "hover:text-amber-500 hover:scale-110 hover:border-amber-500/30";
+      default:
+        return "hover:text-red-500 hover:scale-110 hover:border-red-500/30";
+    }
+  };
+
+  // Filter enabled and sort by display order
+  const activeLinks = links
+    .filter((l) => l.enabled && l.url)
+    .sort((a, b) => (a.displayOrder || 0) - (b.displayOrder || 0));
+
+  if (activeLinks.length === 0) return null;
 
   return (
-    <div className={`flex items-center gap-3 justify-center ${className}`}>
-      {activeOrder.map((key) => {
-        const item = getIcon(key);
-        if (!item || !item.url) return null;
-        return (
-          <a
-            key={key}
-            href={item.url}
-            target="_blank"
-            rel="noopener noreferrer"
-            title={`Follow us on ${item.label}`}
-            className={`text-zinc-400 p-2.5 rounded-xl bg-zinc-950/40 border border-zinc-900/60 hover:bg-zinc-900 hover:border-zinc-800 transition-all duration-300 flex items-center justify-center ${item.hoverColor}`}
-          >
-            {item.icon}
-          </a>
-        );
-      })}
+    <div className={`flex flex-wrap items-center gap-3 justify-center ${className}`}>
+      {activeLinks.map((link) => (
+        <a
+          key={link.id}
+          href={link.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          title={`Follow us on ${link.platformName}`}
+          className={`text-zinc-400 p-2.5 rounded-xl bg-zinc-950/40 border border-zinc-900/60 hover:bg-zinc-900 hover:border-zinc-800 transition-all duration-300 flex items-center justify-center ${getHoverColor(
+            link.iconName
+          )}`}
+        >
+          {renderIcon(link.iconName)}
+        </a>
+      ))}
     </div>
   );
 }

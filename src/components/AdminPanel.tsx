@@ -110,6 +110,15 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
   const [pinUrl, setPinUrl] = useState("");
   const [socOrder, setSocOrder] = useState<string[]>(["instagram", "youtube", "facebook", "pinterest"]);
 
+  // Dynamic Social Links Manager states
+  const [socialLinks, setSocialLinks] = useState<any[]>([]);
+  const [editingSocialLink, setEditingSocialLink] = useState<any | null>(null);
+  const [socialFormName, setSocialFormName] = useState("");
+  const [socialFormIcon, setSocialFormIcon] = useState("youtube");
+  const [socialFormUrl, setSocialFormUrl] = useState("");
+  const [socialFormOrder, setSocialFormOrder] = useState(1);
+  const [socialFormEnabled, setSocialFormEnabled] = useState(true);
+
   useEffect(() => {
     if (socialSettings) {
       setInstEnabled(socialSettings.instagramEnabled ?? true);
@@ -121,6 +130,7 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
       setPinEnabled(socialSettings.pinterestEnabled ?? true);
       setPinUrl(socialSettings.pinterestUrl ?? "");
       setSocOrder(socialSettings.order ?? ["instagram", "youtube", "facebook", "pinterest"]);
+      setSocialLinks(socialSettings.links || []);
     }
   }, [socialSettings]);
 
@@ -1472,9 +1482,10 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
         facebookUrl: fbUrl.trim(),
         pinterestEnabled: pinEnabled,
         pinterestUrl: pinUrl.trim(),
-        order: socOrder
+        order: socOrder,
+        links: socialLinks
       });
-      await writeAuditLog("Settings Updated", "System", "Updated social media icons status, order, and URLs");
+      await writeAuditLog("Settings Updated", "System", "Updated dynamic social media links and platforms config");
       setSocialSuccess(true);
       setTimeout(() => setSocialSuccess(false), 4000);
       alert("Social Settings saved and deployed website-wide!");
@@ -1484,6 +1495,73 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
     } finally {
       setActionLoading(null);
     }
+  };
+
+  const handleAddOrEditSocialLink = () => {
+    if (!socialFormName.trim() || !socialFormUrl.trim()) {
+      alert("Platform name and URL are required.");
+      return;
+    }
+    let updated: any[];
+    if (editingSocialLink) {
+      updated = socialLinks.map(link => {
+        if (link.id === editingSocialLink.id) {
+          return {
+            ...link,
+            platformName: socialFormName.trim(),
+            iconName: socialFormIcon,
+            url: socialFormUrl.trim(),
+            displayOrder: Number(socialFormOrder) || 1,
+            enabled: socialFormEnabled
+          };
+        }
+        return link;
+      });
+    } else {
+      const newLink = {
+        id: "social_" + Date.now(),
+        platformName: socialFormName.trim(),
+        iconName: socialFormIcon,
+        url: socialFormUrl.trim(),
+        displayOrder: Number(socialFormOrder) || 1,
+        enabled: socialFormEnabled
+      };
+      updated = [...socialLinks, newLink];
+    }
+
+    setSocialLinks(updated);
+    setEditingSocialLink(null);
+    setSocialFormName("");
+    setSocialFormIcon("youtube");
+    setSocialFormUrl("");
+    setSocialFormOrder(updated.length + 1);
+    setSocialFormEnabled(true);
+  };
+
+  const handleEditSocialLinkStart = (link: any) => {
+    setEditingSocialLink(link);
+    setSocialFormName(link.platformName);
+    setSocialFormIcon(link.iconName);
+    setSocialFormUrl(link.url);
+    setSocialFormOrder(link.displayOrder);
+    setSocialFormEnabled(link.enabled);
+  };
+
+  const handleDeleteSocialLink = (id: string) => {
+    if (confirm("Are you sure you want to remove this social link?")) {
+      const updated = socialLinks.filter(l => l.id !== id);
+      setSocialLinks(updated);
+    }
+  };
+
+  const handleToggleSocialLink = (id: string) => {
+    const updated = socialLinks.map(l => {
+      if (l.id === id) {
+        return { ...l, enabled: !l.enabled };
+      }
+      return l;
+    });
+    setSocialLinks(updated);
   };
 
   // --- PREMIUM & REVENUE SETTINGS HANDLERS ---
@@ -3953,149 +4031,326 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
       )}
 
       {/* 📈 PLATFORM REVENUE ANALYTICS TAB */}
-      {activeTab === "revenue" && (
-        <div className="space-y-6 animate-fade-in">
-          {/* Revenue metrics cards */}
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-            <div className="bg-zinc-950/40 p-4 border border-zinc-800/80 rounded-xl space-y-1.5">
-              <span className="text-[9px] uppercase tracking-widest font-mono text-zinc-500">Today's Revenue</span>
-              <p className="text-xl font-display font-black text-emerald-400 font-mono">
-                ₹{(revenueData?.today || 0).toLocaleString("en-IN")}.00
-              </p>
-            </div>
-            <div className="bg-zinc-950/40 p-4 border border-zinc-800/80 rounded-xl space-y-1.5">
-              <span className="text-[9px] uppercase tracking-widest font-mono text-zinc-500">Weekly Revenue</span>
-              <p className="text-xl font-display font-black text-emerald-400 font-mono">
-                ₹{(revenueData?.weekly || 0).toLocaleString("en-IN")}.00
-              </p>
-            </div>
-            <div className="bg-zinc-950/40 p-4 border border-zinc-800/80 rounded-xl space-y-1.5">
-              <span className="text-[9px] uppercase tracking-widest font-mono text-zinc-500">Monthly Revenue</span>
-              <p className="text-xl font-display font-black text-emerald-400 font-mono">
-                ₹{(revenueData?.monthly || 0).toLocaleString("en-IN")}.00
-              </p>
-            </div>
-            <div className="bg-zinc-950/40 p-4 border border-zinc-800/80 rounded-xl space-y-1.5">
-              <span className="text-[9px] uppercase tracking-widest font-mono text-zinc-500">Lifetime Gross Revenue</span>
-              <p className="text-xl font-display font-black text-emerald-400 font-mono">
-                ₹{(revenueData?.lifetime || 0).toLocaleString("en-IN")}.00
-              </p>
-            </div>
-          </div>
+      {activeTab === "revenue" && (() => {
+        // Safe timestamp date extractor
+        const getTxDate = (timestamp: any): Date => {
+          if (!timestamp) return new Date(0);
+          if (typeof timestamp.toDate === "function") return timestamp.toDate();
+          if (timestamp.seconds) return new Date(timestamp.seconds * 1000);
+          return new Date(timestamp);
+        };
 
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            {/* Category Split */}
-            <div className="bg-slate-950/20 border border-zinc-850 rounded-2xl p-6 shadow-xl space-y-4">
-              <h3 className="text-sm font-display font-semibold text-zinc-100 uppercase tracking-wider flex items-center space-x-2">
-                <Coins className="w-5 h-5 text-amber-500" />
-                <span>Revenue Categories Breakdown</span>
-              </h3>
+        // Calculate dynamic revenue category totals and time-based metrics
+        let membershipRevenue = 0;
+        let serviceRevenue = 0;
+        let withdrawalFeeRevenue = 0;
+        let platformFeeRevenue = 0;
+        let otherManualRevenue = 0;
+
+        let todayRevenue = 0;
+        let sevenDaysRevenue = 0;
+        let thirtyDaysRevenue = 0;
+        let lifetimeRevenue = 0;
+
+        const nowMs = Date.now();
+        const todayStartMs = new Date().setHours(0, 0, 0, 0);
+        const sevenDaysMs = nowMs - 7 * 24 * 60 * 60 * 1000;
+        const thirtyDaysMs = nowMs - 30 * 24 * 60 * 60 * 1000;
+
+        revenueTransactions.forEach(tx => {
+          const amount = Number(tx.amount) || 0;
+          const txDate = getTxDate(tx.timestamp);
+          const txMs = txDate.getTime();
+
+          // Group by exact type
+          if (tx.type === "premium_purchase" || tx.type === "membership_purchase") {
+            membershipRevenue += amount;
+          } else if (tx.type === "service_purchase") {
+            serviceRevenue += amount;
+          } else if (tx.type === "withdrawal_fee" || tx.type === "fast_withdrawal_fee") {
+            withdrawalFeeRevenue += amount;
+          } else if (tx.type === "platform_fee" || tx.type === "challenge_entry") {
+            platformFeeRevenue += amount;
+          } else {
+            otherManualRevenue += amount;
+          }
+
+          // Accumulate time ranges
+          lifetimeRevenue += amount;
+          if (txMs >= todayStartMs) {
+            todayRevenue += amount;
+          }
+          if (txMs >= sevenDaysMs) {
+            sevenDaysRevenue += amount;
+          }
+          if (txMs >= thirtyDaysMs) {
+            thirtyDaysRevenue += amount;
+          }
+        });
+
+        // Find founder wallet balance from users list
+        const founderUser = users.find(u => u.role === "founder") || adminUser;
+        const founderWalletBalance = founderUser.walletBalance || 0;
+
+        // Form Submission for Recording Manual Income
+        const handleRecordManualIncome = async (e: React.FormEvent) => {
+          e.preventDefault();
+          const form = e.currentTarget as HTMLFormElement;
+          const formData = new FormData(form);
+          const amountVal = Number(formData.get("manual_amount"));
+          const descVal = String(formData.get("manual_desc")).trim();
+          const categoryVal = String(formData.get("manual_category")) as any;
+
+          if (!amountVal || amountVal <= 0) {
+            alert("Please enter a valid positive amount.");
+            return;
+          }
+          if (!descVal) {
+            alert("Please enter a description for the manual income.");
+            return;
+          }
+
+          setActionLoading("record_manual_income");
+          try {
+            // Write a revenueTransaction document
+            await addDoc(collection(db, "revenueTransactions"), {
+              userId: adminUser.userId,
+              username: adminUser.username,
+              amount: amountVal,
+              type: categoryVal,
+              description: `[Manual Income] ${descVal}`,
+              timestamp: serverTimestamp(),
+            });
+
+            // If a founder exists, increment their wallet balance in the DB
+            if (founderUser && founderUser.userId) {
+              const founderUserRef = doc(db, "users", founderUser.userId);
+              const latestFounderSnap = await getDoc(founderUserRef);
+              const currentFounderBal = latestFounderSnap.exists() ? (latestFounderSnap.data()?.walletBalance || 0) : 0;
               
-              <div className="space-y-4 text-xs font-sans">
-                <div className="p-3.5 bg-zinc-950/50 rounded-xl border border-zinc-900 space-y-1">
-                  <span className="text-[10px] text-zinc-500 uppercase tracking-wide font-mono block">Premium Memberships (₹)</span>
-                  <div className="flex justify-between items-baseline">
-                    <span className="text-base font-bold text-zinc-200 font-mono">₹{(revenueData?.premiumRevenue || 0).toLocaleString("en-IN")}</span>
-                    <span className="text-[10px] text-zinc-400">
-                      {revenueData?.lifetime ? ((revenueData.premiumRevenue / revenueData.lifetime) * 100).toFixed(1) : 0}% of gross
-                    </span>
-                  </div>
-                </div>
+              await updateDoc(founderUserRef, {
+                walletBalance: currentFounderBal + amountVal
+              });
+            }
 
-                <div className="p-3.5 bg-zinc-950/50 rounded-xl border border-zinc-900 space-y-1">
-                  <span className="text-[10px] text-zinc-500 uppercase tracking-wide font-mono block">Challenge Entry Fees (₹)</span>
-                  <div className="flex justify-between items-baseline">
-                    <span className="text-base font-bold text-zinc-200 font-mono">₹{(revenueData?.challengeRevenue || 0).toLocaleString("en-IN")}</span>
-                    <span className="text-[10px] text-zinc-400">
-                      {revenueData?.lifetime ? ((revenueData.challengeRevenue / revenueData.lifetime) * 100).toFixed(1) : 0}% of gross
-                    </span>
-                  </div>
-                </div>
+            // Also write audit log
+            await writeAuditLog("Manual Income Logged", adminUser.username, `Recorded ₹${amountVal} manual platform income: ${descVal}`);
 
-                <div className="p-3.5 bg-zinc-950/50 rounded-xl border border-zinc-900 space-y-1">
-                  <span className="text-[10px] text-zinc-500 uppercase tracking-wide font-mono block">Standard Withdrawal Fees (₹)</span>
-                  <div className="flex justify-between items-baseline">
-                    <span className="text-base font-bold text-zinc-200 font-mono">₹{(revenueData?.withdrawalRevenue || 0).toLocaleString("en-IN")}</span>
-                    <span className="text-[10px] text-zinc-400">
-                      {revenueData?.lifetime ? ((revenueData.withdrawalRevenue / revenueData.lifetime) * 100).toFixed(1) : 0}% of gross
-                    </span>
-                  </div>
-                </div>
+            alert("Manual platform income successfully recorded and credited to Founder Wallet!");
+            form.reset();
+          } catch (err: any) {
+            console.error(err);
+            alert("Failed to record manual income: " + err.message);
+          } finally {
+            setActionLoading(null);
+          }
+        };
 
-                <div className="p-3.5 bg-zinc-950/50 rounded-xl border border-zinc-900 space-y-1">
-                  <span className="text-[10px] text-zinc-500 uppercase tracking-wide font-mono block">Fast Processing Priority Fees (₹)</span>
-                  <div className="flex justify-between items-baseline">
-                    <span className="text-base font-bold text-zinc-200 font-mono">₹{(revenueData?.fastWithdrawalRevenue || 0).toLocaleString("en-IN")}</span>
-                    <span className="text-[10px] text-zinc-400">
-                      {revenueData?.lifetime ? ((revenueData.fastWithdrawalRevenue / revenueData.lifetime) * 100).toFixed(1) : 0}% of gross
-                    </span>
-                  </div>
+        return (
+          <div className="space-y-6 animate-fade-in font-sans">
+            {/* Header */}
+            <div className="p-5 rounded-2xl bg-zinc-900/30 border border-zinc-800 flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div>
+                <h2 className="text-base font-display font-bold text-zinc-100 uppercase tracking-widest flex items-center space-x-2">
+                  <Coins className="w-5 h-5 text-amber-500" />
+                  <span>Platform Revenue Dashboard</span>
+                </h2>
+                <p className="text-xs text-zinc-400">Track all income channels, manage reserves, adjust platform receipts, and check Founder Wallet stats.</p>
+              </div>
+              
+              {/* Founder Wallet Balance Card */}
+              <div className="p-4 bg-gradient-to-br from-amber-500/10 to-yellow-500/5 border border-amber-500/25 rounded-xl flex items-center space-x-4">
+                <div className="w-10 h-10 rounded-full bg-amber-500/10 flex items-center justify-center text-amber-500">
+                  <Wallet className="w-5 h-5" />
+                </div>
+                <div>
+                  <span className="text-[10px] uppercase tracking-wider text-zinc-400 block font-mono">Founder Wallet Balance</span>
+                  <span className="text-xl font-mono font-bold text-amber-400">₹{founderWalletBalance.toLocaleString("en-IN")}.00</span>
                 </div>
               </div>
             </div>
 
-            {/* Financial Health & Liabilities */}
-            <div className="bg-slate-950/20 border border-zinc-850 rounded-2xl p-6 shadow-xl space-y-4">
-              <h3 className="text-sm font-display font-semibold text-zinc-100 uppercase tracking-wider flex items-center space-x-2">
-                <ShieldCheck className="w-5 h-5 text-emerald-500" />
-                <span>Financial Reserves Ledger</span>
-              </h3>
-
-              <div className="space-y-4 text-xs font-sans">
-                <div className="p-4 bg-zinc-950/60 border border-zinc-900 rounded-xl space-y-2">
-                  <span className="text-[10px] text-zinc-500 uppercase font-mono tracking-wider block">Available Platform Reserve</span>
-                  <p className="text-2xl font-black text-emerald-400 font-mono">
-                    ₹{(revenueData?.availableReserve || 0).toLocaleString("en-IN")}.00
-                  </p>
-                  <p className="text-[10px] text-zinc-400 leading-relaxed">
-                    This represents net available funds inside the platform vault from fee captures, entirely isolated from affiliate earnings.
+            {/* Time-Based Period Performance Cards */}
+            <div>
+              <h3 className="text-[10px] uppercase font-mono tracking-widest text-zinc-500 mb-3">🕒 Time-Based Revenue Breakdowns</h3>
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                <div className="bg-zinc-950/40 p-4 border border-zinc-800/80 rounded-xl space-y-1">
+                  <span className="text-[9px] uppercase tracking-widest font-mono text-zinc-500">Today's Revenue</span>
+                  <p className="text-xl font-display font-black text-emerald-400 font-mono">
+                    ₹{todayRevenue.toLocaleString("en-IN")}.00
                   </p>
                 </div>
-
-                <div className="p-4 bg-zinc-950/60 border border-zinc-900 rounded-xl space-y-2">
-                  <span className="text-[10px] text-zinc-400 uppercase font-mono tracking-wider block">Cumulative Disbursed Payouts</span>
-                  <p className="text-lg font-bold text-zinc-300 font-mono">
-                    ₹{totalCompletedWithdrawalsVal.toLocaleString("en-IN")}.00
+                <div className="bg-zinc-950/40 p-4 border border-zinc-800/80 rounded-xl space-y-1">
+                  <span className="text-[9px] uppercase tracking-widest font-mono text-zinc-500">7-Day Revenue</span>
+                  <p className="text-xl font-display font-black text-emerald-400 font-mono">
+                    ₹{sevenDaysRevenue.toLocaleString("en-IN")}.00
                   </p>
-                  <p className="text-[10px] text-zinc-500">
-                    Total financial volume successfully completed and disbursed to affiliates historically.
+                </div>
+                <div className="bg-zinc-950/40 p-4 border border-zinc-800/80 rounded-xl space-y-1">
+                  <span className="text-[9px] uppercase tracking-widest font-mono text-zinc-500">30-Day Revenue</span>
+                  <p className="text-xl font-display font-black text-emerald-400 font-mono">
+                    ₹{thirtyDaysRevenue.toLocaleString("en-IN")}.00
+                  </p>
+                </div>
+                <div className="bg-zinc-950/40 p-4 border border-zinc-800/80 rounded-xl space-y-1">
+                  <span className="text-[9px] uppercase tracking-widest font-mono text-zinc-500">Lifetime Revenue</span>
+                  <p className="text-xl font-display font-black text-amber-400 font-mono">
+                    ₹{lifetimeRevenue.toLocaleString("en-IN")}.00
                   </p>
                 </div>
               </div>
             </div>
 
-            {/* Real-time Ledger */}
-            <div className="bg-slate-950/20 border border-zinc-850 rounded-2xl p-6 shadow-xl space-y-4">
-              <h3 className="text-sm font-display font-semibold text-zinc-100 uppercase tracking-wider flex items-center space-x-2">
-                <Terminal className="w-5 h-5 text-amber-500" />
-                <span>Recent Platform Capital Inflows</span>
-              </h3>
-
-              <div className="space-y-3 max-h-[350px] overflow-y-auto pr-1">
-                {revenueTransactions.length === 0 ? (
-                  <div className="text-center py-12 text-zinc-500 font-sans italic">
-                    No transactions captured in active ledger sessions.
+            {/* Individual Income Stream Categories */}
+            <div>
+              <h3 className="text-[10px] uppercase font-mono tracking-widest text-zinc-500 mb-3">📊 Individual Revenue Stream Totals</h3>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+                
+                {/* Membership Income */}
+                <div className="p-4 bg-zinc-950/40 border border-zinc-900 rounded-xl space-y-2">
+                  <div className="flex items-center space-x-2 text-zinc-400">
+                    <Award className="w-4 h-4 text-amber-500" />
+                    <span className="text-[10px] font-bold uppercase tracking-wider">Memberships</span>
                   </div>
-                ) : (
-                  revenueTransactions.slice(0, 10).map((tx) => (
-                    <div key={tx.id} className="p-3 bg-zinc-950/40 border border-zinc-900 rounded-xl flex justify-between items-center text-[11px]">
-                      <div>
-                        <span className="font-semibold text-zinc-200 block truncate max-w-[150px]">{tx.description}</span>
-                        <span className="text-[9px] text-zinc-500 font-mono block">
-                          User: {tx.username} • {tx.timestamp?.seconds ? new Date(tx.timestamp.seconds * 1000).toLocaleTimeString("en-IN") : "Just now"}
+                  <p className="text-lg font-mono font-bold text-zinc-100">₹{membershipRevenue.toLocaleString("en-IN")}</p>
+                  <p className="text-[9px] text-zinc-500 font-sans">Premium plan upgrades & renewals</p>
+                </div>
+
+                {/* Service Income */}
+                <div className="p-4 bg-zinc-950/40 border border-zinc-900 rounded-xl space-y-2">
+                  <div className="flex items-center space-x-2 text-zinc-400">
+                    <Sparkles className="w-4 h-4 text-blue-500" />
+                    <span className="text-[10px] font-bold uppercase tracking-wider">Services</span>
+                  </div>
+                  <p className="text-lg font-mono font-bold text-zinc-100">₹{serviceRevenue.toLocaleString("en-IN")}</p>
+                  <p className="text-[9px] text-zinc-500 font-sans">1-on-1 calls, setups, custom solutions</p>
+                </div>
+
+                {/* Withdrawal Fee Income */}
+                <div className="p-4 bg-zinc-950/40 border border-zinc-900 rounded-xl space-y-2">
+                  <div className="flex items-center space-x-2 text-zinc-400">
+                    <Coins className="w-4 h-4 text-emerald-500" />
+                    <span className="text-[10px] font-bold uppercase tracking-wider">Withdrawal Fees</span>
+                  </div>
+                  <p className="text-lg font-mono font-bold text-zinc-100">₹{withdrawalFeeRevenue.toLocaleString("en-IN")}</p>
+                  <p className="text-[9px] text-zinc-500 font-sans">Standard payout processing fees</p>
+                </div>
+
+                {/* Platform Fee Income */}
+                <div className="p-4 bg-zinc-950/40 border border-zinc-900 rounded-xl space-y-2">
+                  <div className="flex items-center space-x-2 text-zinc-400">
+                    <ShieldCheck className="w-4 h-4 text-purple-500" />
+                    <span className="text-[10px] font-bold uppercase tracking-wider">Platform Fees</span>
+                  </div>
+                  <p className="text-lg font-mono font-bold text-zinc-100">₹{platformFeeRevenue.toLocaleString("en-IN")}</p>
+                  <p className="text-[9px] text-zinc-500 font-sans">Challenges & gateway commission cuts</p>
+                </div>
+
+                {/* Other Manual Income */}
+                <div className="p-4 bg-zinc-950/40 border border-zinc-900 rounded-xl space-y-2">
+                  <div className="flex items-center space-x-2 text-zinc-400">
+                    <PlusCircle className="w-4 h-4 text-teal-500" />
+                    <span className="text-[10px] font-bold uppercase tracking-wider">Manual Receipts</span>
+                  </div>
+                  <p className="text-lg font-mono font-bold text-zinc-100">₹{otherManualRevenue.toLocaleString("en-IN")}</p>
+                  <p className="text-[9px] text-zinc-500 font-sans">Outside sponsors, offline payments</p>
+                </div>
+
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              {/* Record Other Manual Income Form */}
+              <div className="bg-slate-950/20 border border-zinc-850 rounded-2xl p-6 shadow-xl space-y-4">
+                <h3 className="text-sm font-display font-semibold text-zinc-100 uppercase tracking-wider flex items-center space-x-2">
+                  <PlusCircle className="w-5 h-5 text-teal-400" />
+                  <span>Record Platform Income (Manual Receipt)</span>
+                </h3>
+                <p className="text-xs text-zinc-400">Log sponsorship contracts, offline student collections, or administrative receipts. This auto-credits the Founder Wallet.</p>
+
+                <form onSubmit={handleRecordManualIncome} className="space-y-4">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-[10px] text-zinc-400 uppercase font-mono mb-1">Income Source Category</label>
+                      <select
+                        name="manual_category"
+                        className="w-full bg-slate-950 border border-zinc-800 rounded-xl py-2 px-3 text-xs text-zinc-300"
+                      >
+                        <option value="other_manual_income">Other Manual Income</option>
+                        <option value="platform_fee">Platform / Corporate Sponsorship</option>
+                        <option value="membership_purchase">Manual Membership Sale</option>
+                        <option value="service_purchase">Manual Service Sale</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-[10px] text-zinc-400 uppercase font-mono mb-1">Income Amount (₹) *</label>
+                      <input
+                        type="number"
+                        name="manual_amount"
+                        required
+                        placeholder="e.g. 1500"
+                        className="w-full bg-slate-950 border border-zinc-800 rounded-xl py-2 px-3 text-xs text-zinc-300 font-mono"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] text-zinc-400 uppercase font-mono mb-1">Receipt Particulars / Description *</label>
+                    <input
+                      type="text"
+                      name="manual_desc"
+                      required
+                      placeholder="e.g. YouTube sponsor deal with TechBrand"
+                      className="w-full bg-slate-950 border border-zinc-800 rounded-xl py-2 px-3 text-xs text-zinc-300"
+                    />
+                  </div>
+
+                  <div className="flex justify-end">
+                    <button
+                      type="submit"
+                      disabled={actionLoading === "record_manual_income"}
+                      className="px-5 py-2 bg-gradient-to-r from-teal-500 to-emerald-500 hover:from-teal-600 hover:to-emerald-600 text-slate-950 font-bold text-xs rounded-xl shadow-md flex items-center space-x-1.5"
+                    >
+                      {actionLoading === "record_manual_income" ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+                      <span>Save Income & Credit Founder Wallet</span>
+                    </button>
+                  </div>
+                </form>
+              </div>
+
+              {/* Real-time Ledger */}
+              <div className="bg-slate-950/20 border border-zinc-850 rounded-2xl p-6 shadow-xl space-y-4">
+                <h3 className="text-sm font-display font-semibold text-zinc-100 uppercase tracking-wider flex items-center space-x-2">
+                  <Terminal className="w-5 h-5 text-amber-500" />
+                  <span>Recent Platform Capital Inflows</span>
+                </h3>
+
+                <div className="space-y-3 max-h-[280px] overflow-y-auto pr-1">
+                  {revenueTransactions.length === 0 ? (
+                    <div className="text-center py-12 text-zinc-500 font-sans italic">
+                      No transactions captured in active ledger sessions.
+                    </div>
+                  ) : (
+                    revenueTransactions.slice(0, 10).map((tx) => (
+                      <div key={tx.id} className="p-3 bg-zinc-950/40 border border-zinc-900 rounded-xl flex justify-between items-center text-[11px]">
+                        <div>
+                          <span className="font-semibold text-zinc-200 block truncate max-w-[200px]">{tx.description}</span>
+                          <span className="text-[9px] text-zinc-500 font-mono block">
+                            User: {tx.username} • {tx.timestamp?.seconds ? new Date(tx.timestamp.seconds * 1000).toLocaleString("en-IN") : "Just now"}
+                          </span>
+                        </div>
+                        <span className="text-emerald-400 font-bold font-mono shrink-0 ml-2">
+                          +₹{tx.amount}
                         </span>
                       </div>
-                      <span className="text-emerald-400 font-bold font-monoshrink-0 ml-2">
-                        +₹{tx.amount}
-                      </span>
-                    </div>
-                  ))
-                )}
+                    ))
+                  )}
+                </div>
               </div>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* SERVICES MANAGER TAB */}
       {activeTab === "services" && (
@@ -4928,157 +5183,208 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
 
       {activeTab === "social_settings" && (
         <div className="space-y-6 animate-fade-in text-xs font-sans text-zinc-100">
-          <form onSubmit={handleSaveSocialSettings} className="bg-slate-950/20 border border-zinc-850 rounded-2xl p-6 shadow-xl space-y-6">
+          <div className="bg-slate-950/20 border border-zinc-850 rounded-2xl p-6 shadow-xl space-y-6">
+            
+            {/* Header with deploy button */}
             <div className="flex justify-between items-center pb-4 border-b border-zinc-900">
               <div>
                 <h3 className="text-sm font-display font-semibold text-zinc-100 uppercase tracking-wider flex items-center space-x-2">
                   <Share2 className="w-5 h-5 text-amber-500" />
-                  <span>Social Media Settings</span>
+                  <span>Dynamic Social Media Manager</span>
                 </h3>
-                <p className="text-xs text-zinc-400 mt-1">Configure URLs, enable/disable platforms, and change the display order of social media icons across the website.</p>
+                <p className="text-xs text-zinc-400 mt-1">Add, edit, enable/disable, and reorder unlimited social links. Click Deploy & Save to make them live instantly.</p>
               </div>
               <button
-                type="submit"
+                type="button"
+                onClick={handleSaveSocialSettings}
                 disabled={actionLoading === "social"}
-                className="px-4 py-2 bg-gradient-to-r from-amber-500 to-yellow-500 hover:from-amber-600 hover:to-yellow-600 text-slate-950 text-xs font-black rounded-xl transition-all cursor-pointer flex items-center space-x-1.5"
+                className="px-4 py-2 bg-gradient-to-r from-amber-500 to-yellow-500 hover:from-amber-600 hover:to-yellow-600 text-slate-950 text-xs font-black rounded-xl transition-all cursor-pointer flex items-center space-x-1.5 shadow-md hover:shadow-amber-500/10"
               >
                 {actionLoading === "social" ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
-                <span>Save Social Config</span>
+                <span>Deploy & Save All Links</span>
               </button>
             </div>
 
             {socialSuccess && (
-              <div className="p-3 bg-emerald-500/10 border border-emerald-500/25 text-emerald-400 rounded-xl">
-                Social Settings updated successfully! Changes are live instantly.
+              <div className="p-3 bg-emerald-500/10 border border-emerald-500/25 text-emerald-400 rounded-xl animate-fade-in">
+                Social settings and links saved and deployed globally!
               </div>
             )}
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              {/* Instagram Configuration */}
-              <div className="p-4 bg-zinc-950/40 border border-zinc-900 rounded-xl space-y-3">
-                <div className="flex items-center justify-between">
-                  <span className="font-bold text-zinc-200">Instagram</span>
-                  <label className="relative inline-flex items-center cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={instEnabled}
-                      onChange={(e) => setInstEnabled(e.target.checked)}
-                      className="sr-only peer"
-                    />
-                    <div className="w-9 h-5 bg-zinc-800 peer-focus:outline-hidden rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-zinc-400 after:border-zinc-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-amber-500 peer-checked:after:bg-slate-950"></div>
-                  </label>
-                </div>
-                <input
-                  type="url"
-                  placeholder="https://instagram.com/yourprofile"
-                  value={instUrl}
-                  onChange={(e) => setInstUrl(e.target.value)}
-                  disabled={!instEnabled}
-                  className="w-full bg-slate-950 border border-zinc-800 rounded-xl py-2 px-3 text-zinc-300 disabled:opacity-50 focus:outline-hidden focus:border-amber-500/60"
-                />
-              </div>
-
-              {/* YouTube Configuration */}
-              <div className="p-4 bg-zinc-950/40 border border-zinc-900 rounded-xl space-y-3">
-                <div className="flex items-center justify-between">
-                  <span className="font-bold text-zinc-200">YouTube</span>
-                  <label className="relative inline-flex items-center cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={ytEnabled}
-                      onChange={(e) => setYtEnabled(e.target.checked)}
-                      className="sr-only peer"
-                    />
-                    <div className="w-9 h-5 bg-zinc-800 peer-focus:outline-hidden rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-zinc-400 after:border-zinc-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-amber-500 peer-checked:after:bg-slate-950"></div>
-                  </label>
-                </div>
-                <input
-                  type="url"
-                  placeholder="https://youtube.com/yourchannel"
-                  value={ytUrl}
-                  onChange={(e) => setYtUrl(e.target.value)}
-                  disabled={!ytEnabled}
-                  className="w-full bg-slate-950 border border-zinc-800 rounded-xl py-2 px-3 text-zinc-300 disabled:opacity-50 focus:outline-hidden focus:border-amber-500/60"
-                />
-              </div>
-
-              {/* Facebook Configuration */}
-              <div className="p-4 bg-zinc-950/40 border border-zinc-900 rounded-xl space-y-3">
-                <div className="flex items-center justify-between">
-                  <span className="font-bold text-zinc-200">Facebook</span>
-                  <label className="relative inline-flex items-center cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={fbEnabled}
-                      onChange={(e) => setFbEnabled(e.target.checked)}
-                      className="sr-only peer"
-                    />
-                    <div className="w-9 h-5 bg-zinc-800 peer-focus:outline-hidden rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-zinc-400 after:border-zinc-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-amber-500 peer-checked:after:bg-slate-950"></div>
-                  </label>
-                </div>
-                <input
-                  type="url"
-                  placeholder="https://facebook.com/yourpage"
-                  value={fbUrl}
-                  onChange={(e) => setFbUrl(e.target.value)}
-                  disabled={!fbEnabled}
-                  className="w-full bg-slate-950 border border-zinc-800 rounded-xl py-2 px-3 text-zinc-300 disabled:opacity-50 focus:outline-hidden focus:border-amber-500/60"
-                />
-              </div>
-
-              {/* Pinterest Configuration */}
-              <div className="p-4 bg-zinc-950/40 border border-zinc-900 rounded-xl space-y-3">
-                <div className="flex items-center justify-between">
-                  <span className="font-bold text-zinc-200">Pinterest</span>
-                  <label className="relative inline-flex items-center cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={pinEnabled}
-                      onChange={(e) => setPinEnabled(e.target.checked)}
-                      className="sr-only peer"
-                    />
-                    <div className="w-9 h-5 bg-zinc-800 peer-focus:outline-hidden rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-zinc-400 after:border-zinc-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-amber-500 peer-checked:after:bg-slate-950"></div>
-                  </label>
-                </div>
-                <input
-                  type="url"
-                  placeholder="https://pinterest.com/yourprofile"
-                  value={pinUrl}
-                  onChange={(e) => setPinUrl(e.target.value)}
-                  disabled={!pinEnabled}
-                  className="w-full bg-slate-950 border border-zinc-800 rounded-xl py-2 px-3 text-zinc-300 disabled:opacity-50 focus:outline-hidden focus:border-amber-500/60"
-                />
-              </div>
-            </div>
-
-            {/* Icon Display Order */}
+            {/* Link Add/Edit Creator Form */}
             <div className="p-4 bg-zinc-950/40 border border-zinc-900 rounded-xl space-y-4">
-              <h4 className="font-bold text-zinc-200 uppercase tracking-wider text-[10px]">Icon Display Order Priority</h4>
-              <p className="text-[11px] text-zinc-400 font-sans">Order from left to right. Select a platform for each position.</p>
+              <h4 className="text-[10px] font-mono text-amber-500 uppercase tracking-widest font-bold">
+                {editingSocialLink ? "⚡ Edit Selected Social Link" : "➕ Add New Social Link"}
+              </h4>
+              
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-4 items-end">
+                <div>
+                  <label className="block text-[10px] text-zinc-400 mb-1">Platform Name</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. YouTube, Telegram, Custom Link"
+                    value={socialFormName}
+                    onChange={(e) => setSocialFormName(e.target.value)}
+                    className="w-full bg-slate-950 border border-zinc-800 rounded-xl py-2 px-3 text-zinc-200 focus:outline-hidden focus:border-amber-500/60"
+                  />
+                </div>
 
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-                {[0, 1, 2, 3].map((index) => (
-                  <div key={index}>
-                    <label className="block text-[10px] text-zinc-400 font-mono uppercase tracking-wider mb-1.5">Position {index + 1}</label>
-                    <select
-                      value={socOrder[index] || ""}
-                      onChange={(e) => {
-                        const newOrder = [...socOrder];
-                        newOrder[index] = e.target.value;
-                        setSocOrder(newOrder);
-                      }}
-                      className="w-full bg-slate-950 border border-zinc-800 rounded-xl py-2 px-3 text-zinc-300 font-sans focus:outline-hidden focus:border-amber-500/60"
-                    >
-                      <option value="instagram">Instagram</option>
-                      <option value="youtube">YouTube</option>
-                      <option value="facebook">Facebook</option>
-                      <option value="pinterest">Pinterest</option>
-                    </select>
+                <div>
+                  <label className="block text-[10px] text-zinc-400 mb-1">Platform Icon</label>
+                  <select
+                    value={socialFormIcon}
+                    onChange={(e) => setSocialFormIcon(e.target.value)}
+                    className="w-full bg-slate-950 border border-zinc-800 rounded-xl py-2 px-3 text-zinc-200 focus:outline-hidden focus:border-amber-500/60"
+                  >
+                    <option value="youtube">YouTube</option>
+                    <option value="instagram">Instagram</option>
+                    <option value="facebook">Facebook</option>
+                    <option value="telegram">Telegram</option>
+                    <option value="whatsapp">WhatsApp</option>
+                    <option value="linkedin">LinkedIn</option>
+                    <option value="twitter">X (Twitter)</option>
+                    <option value="discord">Discord</option>
+                    <option value="website">Website</option>
+                    <option value="custom">Custom (Link2 Icon)</option>
+                  </select>
+                </div>
+
+                <div className="md:col-span-2">
+                  <label className="block text-[10px] text-zinc-400 mb-1">URL Link</label>
+                  <input
+                    type="url"
+                    placeholder="e.g. https://t.me/yourusername"
+                    value={socialFormUrl}
+                    onChange={(e) => setSocialFormUrl(e.target.value)}
+                    className="w-full bg-slate-950 border border-zinc-800 rounded-xl py-2 px-3 text-zinc-200 focus:outline-hidden focus:border-amber-500/60"
+                  />
+                </div>
+
+                <div className="flex gap-4 items-center justify-between">
+                  <div className="w-1/2">
+                    <label className="block text-[10px] text-zinc-400 mb-1">Order</label>
+                    <input
+                      type="number"
+                      value={socialFormOrder}
+                      onChange={(e) => setSocialFormOrder(Number(e.target.value))}
+                      className="w-full bg-slate-950 border border-zinc-800 rounded-xl py-2 px-3 text-zinc-200 focus:outline-hidden focus:border-amber-500/60 text-center"
+                    />
                   </div>
-                ))}
+                  <div className="flex flex-col items-center">
+                    <span className="text-[10px] text-zinc-400 mb-1">Status</span>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={socialFormEnabled}
+                        onChange={(e) => setSocialFormEnabled(e.target.checked)}
+                        className="sr-only peer"
+                      />
+                      <div className="w-9 h-5 bg-zinc-800 peer-focus:outline-hidden rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-zinc-400 after:border-zinc-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-amber-500 peer-checked:after:bg-slate-950"></div>
+                    </label>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex justify-end space-x-2 pt-2">
+                {editingSocialLink && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEditingSocialLink(null);
+                      setSocialFormName("");
+                      setSocialFormIcon("youtube");
+                      setSocialFormUrl("");
+                      setSocialFormOrder(socialLinks.length + 1);
+                      setSocialFormEnabled(true);
+                    }}
+                    className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 font-bold rounded-xl transition-all"
+                  >
+                    Cancel
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={handleAddOrEditSocialLink}
+                  className="px-5 py-2 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold rounded-xl transition-all shadow-md"
+                >
+                  {editingSocialLink ? "Update Social Link" : "Add Link to List"}
+                </button>
               </div>
             </div>
-          </form>
+
+            {/* List of current social links */}
+            <div className="space-y-3">
+              <div className="flex justify-between items-center">
+                <h4 className="text-[10px] font-mono text-zinc-400 uppercase tracking-wider font-bold">
+                  📁 Draft Links List ({socialLinks.length} Platform Link(s))
+                </h4>
+                <p className="text-[10px] text-zinc-500 italic">Drag-ordering can be manually set via "Order" value. Sorts ascending.</p>
+              </div>
+
+              {socialLinks.length === 0 ? (
+                <div className="p-8 text-center bg-zinc-950/20 border border-zinc-900 rounded-xl text-zinc-500 font-sans">
+                  No custom social links added yet. Platform will show default links (YouTube, Instagram, Facebook, Telegram) if empty.
+                </div>
+              ) : (
+                <div className="border border-zinc-900 rounded-xl overflow-hidden bg-zinc-950/20">
+                  <table className="w-full text-left font-sans text-xs">
+                    <thead>
+                      <tr className="bg-zinc-950/60 border-b border-zinc-900 text-zinc-400 uppercase tracking-wider text-[10px] font-mono">
+                        <th className="p-3">Order</th>
+                        <th className="p-3">Platform</th>
+                        <th className="p-3">Icon Type</th>
+                        <th className="p-3">URL</th>
+                        <th className="p-3">State</th>
+                        <th className="p-3 text-right">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-zinc-900/40 text-zinc-300">
+                      {[...socialLinks]
+                        .sort((a, b) => (a.displayOrder || 0) - (b.displayOrder || 0))
+                        .map((link) => (
+                          <tr key={link.id} className="hover:bg-zinc-900/30 transition-all">
+                            <td className="p-3 font-mono font-bold text-amber-500">{link.displayOrder}</td>
+                            <td className="p-3 font-bold text-zinc-100">{link.platformName}</td>
+                            <td className="p-3 font-mono text-zinc-400 text-[10px]">{link.iconName}</td>
+                            <td className="p-3 text-zinc-400 font-mono truncate max-w-xs">{link.url}</td>
+                            <td className="p-3">
+                              <button
+                                type="button"
+                                onClick={() => handleToggleSocialLink(link.id)}
+                                className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
+                                  link.enabled
+                                    ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
+                                    : "bg-red-500/10 text-red-400 border border-red-500/20"
+                                }`}
+                              >
+                                {link.enabled ? "Active" : "Inactive"}
+                              </button>
+                            </td>
+                            <td className="p-3 text-right space-x-2">
+                              <button
+                                type="button"
+                                onClick={() => handleEditSocialLinkStart(link)}
+                                className="px-2 py-1 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 rounded-lg text-[10px]"
+                              >
+                                Edit
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteSocialLink(link.id)}
+                                className="px-2 py-1 bg-red-500/10 hover:bg-red-500/20 text-red-400 rounded-lg text-[10px]"
+                              >
+                                Delete
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+
+          </div>
         </div>
       )}
 

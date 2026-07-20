@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { User, Mail, Phone, MapPin, Calendar, Award, Shield, DollarSign, Wallet, CheckCircle, Edit, RefreshCw, Lock, Zap, Check, Coins, ShieldCheck, Key, Share2 } from "lucide-react";
-import { doc, updateDoc, collection, query, onSnapshot, runTransaction, serverTimestamp, addDoc, getDoc } from "firebase/firestore";
+import { doc, updateDoc, collection, query, onSnapshot, runTransaction, serverTimestamp, addDoc, getDoc, getDocs, where, limit } from "firebase/firestore";
 import { updatePassword, reauthenticateWithCredential, EmailAuthProvider } from "firebase/auth";
 import { db, auth, handleFirestoreError, OperationType } from "../firebase";
 import { UserProfile, MembershipPlan } from "../types";
@@ -263,6 +263,18 @@ export default function ProfileSection({ user, onUpdateUser }: ProfileSectionPro
       const txRef = doc(collection(db, "revenueTransactions"));
       const notifRef = doc(collection(db, "notifications"));
 
+      // 1. Pre-query the founder user reference (Transactions don't allow queries inside)
+      let founderRef = null;
+      try {
+        const founderQuery = query(collection(db, "users"), where("role", "==", "founder"), limit(1));
+        const founderSnap = await getDocs(founderQuery);
+        if (!founderSnap.empty) {
+          founderRef = founderSnap.docs[0].ref;
+        }
+      } catch (err) {
+        console.warn("Founder query failed: ", err);
+      }
+
       await runTransaction(db, async (transaction) => {
         // --- READ ALL REQUIRED DOCUMENTS FIRST ---
         const userSnap = await transaction.get(userRef);
@@ -287,6 +299,12 @@ export default function ProfileSection({ user, onUpdateUser }: ProfileSectionPro
 
         if (currentBalance < selectedPlan.price) {
           throw new Error(`Insufficient wallet balance. You need ₹${selectedPlan.price.toLocaleString("en-IN")} but have ₹${currentBalance.toLocaleString("en-IN")}.`);
+        }
+
+        // Read Founder document within transaction if available
+        let founderSnapTx = null;
+        if (founderRef) {
+          founderSnapTx = await transaction.get(founderRef);
         }
 
         const revSnap = await transaction.get(revenueRef);
@@ -314,6 +332,15 @@ export default function ProfileSection({ user, onUpdateUser }: ProfileSectionPro
           premiumBadgeStyle: selectedPlan.badgeStyle || "👑 VIP MEMBER",
           vipTagText: selectedPlan.badgeStyle || "👑 VIP MEMBER",
         });
+
+        // Credit the Founder's Wallet automatically
+        if (founderRef && founderSnapTx && founderSnapTx.exists()) {
+          const founderData = founderSnapTx.data();
+          const currentFounderBalance = founderData.walletBalance || 0;
+          transaction.update(founderRef, {
+            walletBalance: currentFounderBalance + selectedPlan.price
+          });
+        }
 
         const todayStr = new Date().toLocaleDateString("en-CA");
         

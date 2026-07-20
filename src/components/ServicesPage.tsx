@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { collection, query, onSnapshot, doc, runTransaction, serverTimestamp, where, orderBy, getDoc } from "firebase/firestore";
+import { collection, query, onSnapshot, doc, runTransaction, serverTimestamp, where, orderBy, getDoc, getDocs, limit } from "firebase/firestore";
 import { db, handleFirestoreError, OperationType } from "../firebase";
 import { UserProfile, Service, ServicePurchase } from "../types";
 import { Sparkles, ShoppingBag, CreditCard, History, Trash2, CheckCircle2, ShieldAlert, Clock, AlertCircle, RefreshCw, Layers } from "lucide-react";
@@ -99,6 +99,20 @@ export default function ServicesPage({ user, onUpdateUser }: ServicesPageProps) 
       const serviceRef = doc(db, "services", selectedService.id);
       const purchaseRef = doc(collection(db, "servicePurchases"));
       const notifRef = doc(collection(db, "notifications"));
+      const revenueRef = doc(db, "settings", "revenue");
+      const txRef = doc(collection(db, "revenueTransactions"));
+
+      // 1. Fetch founder user doc ref outside transaction (due to Firestore transaction read constraint)
+      let founderRef = null;
+      try {
+        const founderQuery = query(collection(db, "users"), where("role", "==", "founder"), limit(1));
+        const founderSnap = await getDocs(founderQuery);
+        if (!founderSnap.empty) {
+          founderRef = founderSnap.docs[0].ref;
+        }
+      } catch (err) {
+        console.warn("Founder query failed: ", err);
+      }
 
       await runTransaction(db, async (transaction) => {
         // 1. Read User Profile
@@ -109,15 +123,15 @@ export default function ServicesPage({ user, onUpdateUser }: ServicesPageProps) 
         const userData = userSnap.data();
         const currentBalance = userData.walletBalance || 0;
 
-        // Check if already purchased
-        const qCheck = query(
-          collection(db, "servicePurchases"),
-          where("userId", "==", user.userId),
-          where("serviceId", "==", selectedService.id)
-        );
-        // Transactions require all reads first. We can't query inside transaction, 
-        // so we rely on client-side check plus atomic verification of funds.
-        
+        // Also fetch founder profile if found
+        let founderSnapTx = null;
+        if (founderRef) {
+          founderSnapTx = await transaction.get(founderRef);
+        }
+
+        // Fetch global revenue settings
+        const revSnap = await transaction.get(revenueRef);
+
         if (currentBalance < selectedService.price) {
           throw new Error("Insufficient Wallet Balance");
         }
@@ -127,6 +141,15 @@ export default function ServicesPage({ user, onUpdateUser }: ServicesPageProps) 
         transaction.update(userRef, {
           walletBalance: nextBalance
         });
+
+        // Credit the Founder's Wallet automatically
+        if (founderRef && founderSnapTx && founderSnapTx.exists()) {
+          const founderData = founderSnapTx.data();
+          const currentFounderBalance = founderData.walletBalance || 0;
+          transaction.update(founderRef, {
+            walletBalance: currentFounderBalance + selectedService.price
+          });
+        }
 
         // Create Purchase Log
         transaction.set(purchaseRef, {
@@ -149,6 +172,53 @@ export default function ServicesPage({ user, onUpdateUser }: ServicesPageProps) 
           timestamp: serverTimestamp(),
           isRead: false,
           type: "system",
+        });
+
+        // Update platform revenue tracking document
+        const todayStr = new Date().toLocaleDateString("en-CA");
+        let revData = {
+          today: 0,
+          weekly: 0,
+          monthly: 0,
+          lifetime: 0,
+          premiumRevenue: 0,
+          serviceRevenue: 0,
+          challengeRevenue: 0,
+          withdrawalRevenue: 0,
+          fastWithdrawalRevenue: 0,
+          totalUserPayout: 0,
+          pendingLiability: 0,
+          availableReserve: 0,
+          lastUpdatedDate: todayStr,
+        };
+
+        if (revSnap.exists()) {
+          const existing = revSnap.data();
+          revData = { ...revData, ...existing };
+        }
+
+        if (revData.lastUpdatedDate !== todayStr) {
+          revData.today = 0;
+          revData.lastUpdatedDate = todayStr;
+        }
+
+        revData.lifetime += selectedService.price;
+        revData.today += selectedService.price;
+        revData.weekly += selectedService.price;
+        revData.monthly += selectedService.price;
+        revData.availableReserve += selectedService.price;
+        revData.serviceRevenue = (revData.serviceRevenue || 0) + selectedService.price;
+
+        transaction.set(revenueRef, revData);
+
+        // Record global revenue transaction log
+        transaction.set(txRef, {
+          userId: user.userId,
+          username: user.username,
+          amount: selectedService.price,
+          type: "service_purchase",
+          description: `Service Purchase: ${selectedService.name}`,
+          timestamp: serverTimestamp(),
         });
       });
 
