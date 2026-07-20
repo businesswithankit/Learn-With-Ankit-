@@ -67,6 +67,7 @@ export default function Leaderboard({ currentUser }: LeaderboardProps) {
       profilePic: u.profilePic,
       earnings: getVal(u),
       rank: index + 1,
+      customRank: (u as any).customRank || null,
       isPremium: u.isPremium || false,
     }));
   };
@@ -227,7 +228,13 @@ export default function Leaderboard({ currentUser }: LeaderboardProps) {
                 >
                   <div className="flex items-center space-x-3 min-w-0">
                     <div className="shrink-0">
-                      {renderMedal(user.rank || idx + 1)}
+                      {(user as any).customRank ? (
+                        <div className="px-2.5 py-1 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded-md font-mono text-[10px] font-bold">
+                          {(user as any).customRank}
+                        </div>
+                      ) : (
+                        renderMedal(user.rank || idx + 1)
+                      )}
                     </div>
                     
                     {/* User Profile Avatar */}

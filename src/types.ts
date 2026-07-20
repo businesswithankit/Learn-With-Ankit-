@@ -44,6 +44,8 @@ export interface UserProfile {
   premiumPlanId?: string;
   premiumBadgeStyle?: string; // e.g. "crown", "sparkle", "star"
   vipTagText?: string; // e.g. "VIP MEMBER", "ELITE MEMBER"
+  customRank?: string;
+  customBadge?: string;
   membershipStatus?: 'Active' | 'Expired' | 'Cancelled';
 }
 

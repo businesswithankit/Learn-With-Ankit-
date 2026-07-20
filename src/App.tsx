@@ -45,6 +45,20 @@ export default function App() {
 
   // Dynamic system and feature states
   const [maintenanceMode, setMaintenanceMode] = useState(false);
+  const [featureToggles, setFeatureToggles] = useState<any>({
+    enableRegistration: true,
+    enableDashboard: true,
+    enableLeaderboard: true,
+    enableChallenges: true,
+    enablePaymentRequests: true,
+    enableWithdrawals: true,
+    enableKYCUpload: true,
+    enableNotifications: true,
+    enableReports: true,
+    enableServices: true,
+    enableSettings: true,
+    maintenanceMode: false
+  });
   const [websiteSettings, setWebsiteSettings] = useState<any>(null);
   const [customPages, setCustomPages] = useState<any[]>([]);
   const [helpVideoUrl, setHelpVideoUrl] = useState<string | null>(null);
@@ -64,6 +78,7 @@ export default function App() {
     const unsubFeatures = onSnapshot(doc(db, "settings", "features"), (snapshot) => {
       if (snapshot.exists()) {
         const data = snapshot.data();
+        setFeatureToggles((prev: any) => ({ ...prev, ...data }));
         setMaintenanceMode(!!data.maintenanceMode);
       }
     });
@@ -542,24 +557,34 @@ export default function App() {
   })();
 
   const sidebarNavItems = [
-    { id: "dashboard", label: "Dashboard", icon: <Layers className="w-4.5 h-4.5" /> },
-    { id: "payment", label: "Payment Claims", icon: <CreditCard className="w-4.5 h-4.5" /> },
-    { id: "withdrawal", label: "Withdrawals", icon: <Landmark className="w-4.5 h-4.5" /> },
-    { id: "history", label: "History Log", icon: <History className="w-4.5 h-4.5" /> },
-    { id: "leaderboard", label: "Leaderboard", icon: <Trophy className="w-4.5 h-4.5" /> },
-    { id: "challenge", label: "Challenges", icon: <Award className="w-4.5 h-4.5" /> },
-    { id: "kyc", label: "KYC Verification", icon: <Shield className="w-4.5 h-4.5" /> },
-    { id: "services", label: "Services", icon: <Sparkles className="w-4.5 h-4.5 text-amber-500/80" /> },
-    { id: "profile", label: "My Profile", icon: <User className="w-4.5 h-4.5" /> },
+    { id: "dashboard", label: "Dashboard", icon: <Layers className="w-4.5 h-4.5" />, show: featureToggles.enableDashboard !== false },
+    { id: "payment", label: "Payment Claims", icon: <CreditCard className="w-4.5 h-4.5" />, show: featureToggles.enablePaymentRequests !== false },
+    { id: "withdrawal", label: "Withdrawals", icon: <Landmark className="w-4.5 h-4.5" />, show: featureToggles.enableWithdrawals !== false },
+    { id: "history", label: "History Log", icon: <History className="w-4.5 h-4.5" />, show: true },
+    { id: "leaderboard", label: "Leaderboard", icon: <Trophy className="w-4.5 h-4.5" />, show: featureToggles.enableLeaderboard !== false },
+    { id: "challenge", label: "Challenges", icon: <Award className="w-4.5 h-4.5" />, show: featureToggles.enableChallenges !== false },
+    { id: "kyc", label: "KYC Verification", icon: <Shield className="w-4.5 h-4.5" />, show: featureToggles.enableKYCUpload !== false },
+    { id: "services", label: "Services", icon: <Sparkles className="w-4.5 h-4.5 text-amber-500/80" />, show: featureToggles.enableServices !== false },
+    { id: "profile", label: "My Profile", icon: <User className="w-4.5 h-4.5" />, show: featureToggles.enableSettings !== false },
     ...customPages.map((page) => ({
       id: `custom_page_${page.slug}`,
       label: page.title,
-      icon: <Layers className="w-4.5 h-4.5 text-amber-500/80" />
+      icon: <Layers className="w-4.5 h-4.5 text-amber-500/80" />,
+      show: true
     })),
     ...(currentUser && (currentUser.role === "admin" || currentUser.role === "founder" || currentUser.role === "co-founder" || currentUser.role === "co_founder")
-      ? [{ id: "admin", label: "Admin Console", icon: <ShieldAlert className="w-4.5 h-4.5 text-red-400" /> }] 
+      ? [{ id: "admin", label: "Admin Console", icon: <ShieldAlert className="w-4.5 h-4.5 text-red-400" />, show: true }] 
       : [])
-  ];
+  ].filter(item => item.show);
+
+  useEffect(() => {
+    if (currentUser && sidebarNavItems.length > 0) {
+      const isCurrentPageVisible = sidebarNavItems.some(item => item.id === activePage || (activePage.startsWith("custom_page_") && item.id === activePage));
+      if (!isCurrentPageVisible) {
+        setActivePage(sidebarNavItems[0].id as any);
+      }
+    }
+  }, [featureToggles, activePage, currentUser]);
 
   return (
     <div className="min-h-screen bg-slate-950 text-zinc-100 flex flex-col font-sans">
@@ -688,8 +713,14 @@ export default function App() {
                 <div className="flex space-x-3 items-center">
                   <div className="text-center bg-slate-950/65 px-4 py-2 rounded-xl border border-zinc-900">
                     <span className="text-[8px] uppercase tracking-wider text-zinc-500 font-mono block">Achievement level</span>
-                    <span className="text-xs font-display font-bold text-amber-400">★ {currentUser.badge.toUpperCase()} Badge</span>
+                    <span className="text-xs font-display font-bold text-amber-400">★ {(currentUser.customBadge || currentUser.badge).toUpperCase()} Badge</span>
                   </div>
+                  {(currentUser as any).customRank && (
+                    <div className="text-center bg-slate-950/65 px-4 py-2 rounded-xl border border-zinc-900">
+                      <span className="text-[8px] uppercase tracking-wider text-zinc-500 font-mono block">Custom Rank</span>
+                      <span className="text-xs font-display font-bold text-emerald-400">{(currentUser as any).customRank}</span>
+                    </div>
+                  )}
                 </div>
               </div>
 

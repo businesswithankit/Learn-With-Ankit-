@@ -148,7 +148,12 @@ export default function ProfileSection({ user, onUpdateUser }: ProfileSectionPro
     }
   };
 
-  const badge = getBadgeDetails(user.totalEarnings || 0);
+  const rawBadge = getBadgeDetails(user.totalEarnings || 0);
+  const badge = {
+    ...rawBadge,
+    tier: (user as any).customBadge || rawBadge.tier,
+    description: (user as any).customBadge ? `Custom achievement level specified by Administrator: ${(user as any).customBadge}` : rawBadge.description
+  };
 
   const handleUpdateProfile = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -478,6 +483,9 @@ export default function ProfileSection({ user, onUpdateUser }: ProfileSectionPro
               <p className="text-[10px] text-zinc-400">Standard Affiliate Member</p>
             )}
             <p className="text-xs text-zinc-400">Join Date: {user.joinDate}</p>
+            {(user as any).customRank && (
+              <p className="text-xs text-emerald-400 font-bold font-sans">Rank Status: {(user as any).customRank}</p>
+            )}
           </div>
         </div>
 

@@ -4,6 +4,7 @@ import { db, handleFirestoreError, OperationType } from "../firebase";
 import { UserProfile, Service, ServicePurchase } from "../types";
 import { Sparkles, ShoppingBag, CreditCard, History, Trash2, CheckCircle2, ShieldAlert, Clock, AlertCircle, RefreshCw, Layers } from "lucide-react";
 import { logAuditAction } from "../utils/audit";
+import { hashPin } from "../utils/pin";
 
 interface ServicesPageProps {
   user: UserProfile;
@@ -17,6 +18,7 @@ export default function ServicesPage({ user, onUpdateUser }: ServicesPageProps) 
   
   // Purchase Modal / Confirmation
   const [selectedService, setSelectedService] = useState<Service | null>(null);
+  const [pin, setPin] = useState("");
   const [purchaseLoading, setPurchaseLoading] = useState(false);
   const [purchaseError, setPurchaseError] = useState<string | null>(null);
   const [purchaseSuccess, setPurchaseSuccess] = useState<string | null>(null);
@@ -24,6 +26,11 @@ export default function ServicesPage({ user, onUpdateUser }: ServicesPageProps) 
   // History Deletion Modal / State
   const [deletingPurchase, setDeletingPurchase] = useState<ServicePurchase | null>(null);
   const [deleteLoading, setDeleteLoading] = useState(false);
+
+  // Clear PIN on selected service change
+  useEffect(() => {
+    setPin("");
+  }, [selectedService]);
 
   // Subscriptions for active services and user purchases
   useEffect(() => {
@@ -94,7 +101,27 @@ export default function ServicesPage({ user, onUpdateUser }: ServicesPageProps) 
     setPurchaseError(null);
     setPurchaseSuccess(null);
 
+    // Validate PIN
+    if (!user.walletPinHash) {
+      setPurchaseError("Please set up your secure 4-digit Wallet PIN in the Profile section first.");
+      setPurchaseLoading(false);
+      return;
+    }
+
+    if (pin.length !== 4 || isNaN(Number(pin))) {
+      setPurchaseError("Wallet PIN must be exactly 4 digits.");
+      setPurchaseLoading(false);
+      return;
+    }
+
     try {
+      const hashedInput = await hashPin(pin);
+      if (hashedInput !== user.walletPinHash) {
+        setPurchaseError("Incorrect Wallet PIN. Service purchase denied.");
+        setPurchaseLoading(false);
+        return;
+      }
+
       const userRef = doc(db, "users", user.userId);
       const serviceRef = doc(db, "services", selectedService.id);
       const purchaseRef = doc(collection(db, "servicePurchases"));
@@ -476,6 +503,23 @@ export default function ServicesPage({ user, onUpdateUser }: ServicesPageProps) 
                     <span className="text-zinc-500">Your Balance:</span>
                     <span className="text-zinc-200 font-semibold">₹{user.walletBalance.toLocaleString("en-IN")}</span>
                   </div>
+                </div>
+
+                <div className="space-y-1.5 border-t border-zinc-900 pt-3 mt-3">
+                  <label className="block text-[10px] uppercase tracking-wider text-zinc-400 font-mono font-bold">Secure Wallet PIN</label>
+                  <input
+                    type="password"
+                    maxLength={4}
+                    placeholder="••••"
+                    value={pin}
+                    onChange={(e) => setPin(e.target.value.replace(/\D/g, ''))}
+                    className="w-full bg-slate-950 border border-zinc-850 rounded-xl py-2 px-3 text-center text-sm font-mono tracking-widest text-zinc-100 focus:outline-hidden focus:border-amber-500/50"
+                  />
+                  {!user.walletPinHash && (
+                    <p className="text-[10px] text-amber-500/80 italic leading-snug">
+                      * You must set up your secure 4-digit Wallet PIN in the Profile tab first.
+                    </p>
+                  )}
                 </div>
               </div>
             )}

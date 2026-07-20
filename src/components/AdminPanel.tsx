@@ -6,6 +6,7 @@ import { UserProfile, PaymentRequest, WithdrawalRequest, AuditLog, Announcement,
 import { Users, CreditCard, ShieldCheck, Megaphone, Terminal, Search, UserPlus, Check, X, FileSpreadsheet, PlusCircle, AlertCircle, RefreshCw, Send, DollarSign, ShieldAlert, Settings, Bell, Trophy, Award, Landmark, Hourglass, ClipboardCheck, Sparkles, AlertTriangle, TrendingUp, Coins, Calendar, Clock, Lock, Unlock, Share2, Save, Trash2, Edit, Download, Wallet, TrendingDown, ArrowUpRight } from "lucide-react";
 import AnimatedCounter from "./AnimatedCounter";
 import { jsPDF } from "jspdf";
+import MultiSelect from "./MultiSelect";
 
 interface AdminPanelProps {
   adminUser: UserProfile;
@@ -136,6 +137,9 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
 
 
   const [editCustomUserId, setEditCustomUserId] = useState("");
+  const [editCustomRank, setEditCustomRank] = useState("");
+  const [editCustomBadge, setEditCustomBadge] = useState("");
+  const [editVipTagText, setEditVipTagText] = useState("");
   const [editRole, setEditRole] = useState<"founder" | "admin" | "co-founder" | "user">("user");
   const [editCoFounderPermissions, setEditCoFounderPermissions] = useState<CoFounderPermissions>({
     manageUsers: false,
@@ -212,13 +216,36 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
   // Feature Toggles state
   const [featureToggles, setFeatureToggles] = useState<any>({
     enableRegistration: true,
+    enableDashboard: true,
     enableLeaderboard: true,
-    enableWithdrawals: true,
+    enableChallenges: true,
     enablePaymentRequests: true,
+    enableWithdrawals: true,
     enableKYCUpload: true,
+    enableNotifications: true,
+    enableReports: true,
+    enableServices: true,
+    enableSettings: true,
     maintenanceMode: false,
   });
   const [featuresSuccess, setFeaturesSuccess] = useState(false);
+
+  // --- Admin Filter Preferences (Saved in Firestore) ---
+  const [filterRoles, setFilterRoles] = useState<string[]>(["user", "admin", "co-founder", "founder"]);
+  const [filterWithdrawalStatuses, setFilterWithdrawalStatuses] = useState<string[]>(["Pending", "Completed", "Approved", "Rejected"]);
+  const [filterPaymentStatuses, setFilterPaymentStatuses] = useState<string[]>(["Pending", "Approved", "Rejected"]);
+
+  const saveAdminPreferences = async (newRoles: string[], newWithdrawals: string[], newPayments: string[]) => {
+    try {
+      await setDoc(doc(db, "settings", "admin_preferences"), {
+        filterRoles: newRoles,
+        filterWithdrawalStatuses: newWithdrawals,
+        filterPaymentStatuses: newPayments
+      }, { merge: true });
+    } catch (e) {
+      console.error("Failed to save admin preferences to Firestore", e);
+    }
+  };
 
   // --- PREMIUM & REVENUE ADMIN STATES ---
   const [plans, setPlans] = useState<MembershipPlan[]>([]);
@@ -298,6 +325,16 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
     const unsubFeatures = onSnapshot(doc(db, "settings", "features"), (snapshot) => {
       if (snapshot.exists()) {
         setFeatureToggles(snapshot.data());
+      }
+    });
+
+    // Listen to admin preferences for filters
+    const unsubPrefs = onSnapshot(doc(db, "settings", "admin_preferences"), (snapshot) => {
+      if (snapshot.exists()) {
+        const data = snapshot.data();
+        if (data.filterRoles) setFilterRoles(data.filterRoles);
+        if (data.filterWithdrawalStatuses) setFilterWithdrawalStatuses(data.filterWithdrawalStatuses);
+        if (data.filterPaymentStatuses) setFilterPaymentStatuses(data.filterPaymentStatuses);
       }
     });
 
@@ -529,6 +566,7 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
       unsubSocial();
       unsubServices();
       unsubServicePurchases();
+      unsubPrefs();
     };
   }, []);
 
@@ -632,6 +670,9 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
     setEditKycUpiId(user.kycUpiId || "");
     setEditKycUpiNumber(user.kycUpiNumber || "");
     setEditCustomUserId(user.customUserId || "");
+    setEditCustomRank((user as any).customRank || "");
+    setEditCustomBadge((user as any).customBadge || "");
+    setEditVipTagText(user.vipTagText || "");
     setEditRole(user.role || "user");
     setEditCoFounderPermissions(user.coFounderPermissions || {
       manageUsers: false,
@@ -696,6 +737,9 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
         kycUpiId: editKycUpiId.trim(),
         kycUpiNumber: editKycUpiNumber.trim(),
         customUserId: editCustomUserId.trim(),
+        customRank: editCustomRank.trim() || null,
+        customBadge: editCustomBadge.trim() || null,
+        vipTagText: editVipTagText.trim() || null,
         role: editRole,
         coFounderPermissions: editRole === "co-founder" ? editCoFounderPermissions : null,
       };
@@ -2462,27 +2506,26 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
         {/* Tab Selection */}
         <div className="flex flex-wrap gap-1.5 mt-4 md:mt-0 bg-slate-950/80 p-1 rounded-xl border border-zinc-800/65">
           {[
-            { id: "analytics", label: "Analytics", show: true },
+            { id: "analytics", label: "Analytics", show: featureToggles.enableDashboard !== false },
             { id: "users", label: "Users", show: hasPermission("manageUsers") },
-            { id: "payments", label: "Payments", show: hasPermission("managePayments") },
-            { id: "withdrawals", label: "Withdrawals", show: hasPermission("manageWithdrawals") },
-            { id: "challenges_review", label: "Challenges Review", show: hasPermission("manageChallenges") },
-            { id: "services", label: "🛠️ Services Manager", show: hasPermission("manageSettings") },
+            { id: "payments", label: "Payments", show: hasPermission("managePayments") && featureToggles.enablePaymentRequests !== false },
+            { id: "withdrawals", label: "Withdrawals", show: hasPermission("manageWithdrawals") && featureToggles.enableWithdrawals !== false },
+            { id: "challenges_review", label: "Challenges Review", show: hasPermission("manageChallenges") && featureToggles.enableChallenges !== false },
+            { id: "services", label: "🛠️ Services Manager", show: hasPermission("manageSettings") && featureToggles.enableServices !== false },
             { id: "memberships_manage", label: "👥 Memberships Manager", show: hasPermission("manageSettings") },
             { id: "audit_logs", label: "📜 Audit Logs", show: hasPermission("manageSettings") },
-            { id: "notifications", label: "Broadcast Notices", show: hasPermission("manageNotifications") },
+            { id: "notifications", label: "Broadcast Notices", show: hasPermission("manageNotifications") && featureToggles.enableNotifications !== false },
             { id: "membership", label: "👑 Premium Plans", show: hasPermission("manageSettings") },
             { id: "fees", label: "💸 Fees Manager", show: hasPermission("manageSettings") },
             { id: "withdrawal_settings", label: "🗓️ Withdrawal Schedule", show: hasPermission("manageSettings") },
             { id: "revenue", label: "📈 Revenue Analytics", show: hasPermission("manageSettings") },
             { id: "pages", label: "Pages Builder", show: hasPermission("managePages") },
-            { id: "navigation", label: "Menu Manager", show: hasPermission("managePages") },
             { id: "storage", label: "Storage Monitor", show: hasPermission("manageBackup") },
             { id: "features", label: "Feature Toggles", show: hasPermission("manageSettings") },
-            { id: "settings", label: "System Settings", show: hasPermission("manageSettings") },
-            { id: "social_settings", label: "Social Settings", show: hasPermission("manageSettings") },
+            { id: "settings", label: "System Settings", show: hasPermission("manageSettings") && featureToggles.enableSettings !== false },
+            { id: "social_settings", label: "Social Settings", show: hasPermission("manageSettings") && featureToggles.enableSettings !== false },
             { id: "announcements", label: "Announcements", show: hasPermission("manageAnnouncements") },
-            { id: "weeklyReport", label: "Weekly Report", show: adminUser.role === "founder" || adminUser.role === "admin" },
+            { id: "weeklyReport", label: "Weekly Report", show: (adminUser.role === "founder" || adminUser.role === "admin") && featureToggles.enableReports !== false },
           ].filter(t => t.show).map((tab) => (
             <button
               key={tab.id}
@@ -2743,6 +2786,27 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
               </div>
             </div>
 
+            <div className="flex flex-col md:flex-row md:items-center gap-4 bg-slate-950/40 p-4 border border-zinc-850 rounded-xl">
+              <div className="flex-1">
+                <span className="text-[10px] font-mono uppercase tracking-wider text-zinc-400 block mb-1">Filter by User Roles (Tags Selection)</span>
+                <MultiSelect
+                  id="user-roles-filter"
+                  options={[
+                    { value: "user", label: "Standard User" },
+                    { value: "co-founder", label: "Co-Founder" },
+                    { value: "admin", label: "Admin" },
+                    { value: "founder", label: "Founder" },
+                  ]}
+                  selected={filterRoles}
+                  onChange={(selectedList) => {
+                    setFilterRoles(selectedList);
+                    saveAdminPreferences(selectedList, filterWithdrawalStatuses, filterPaymentStatuses);
+                  }}
+                  placeholder="Filter roles..."
+                />
+              </div>
+            </div>
+
             {/* List */}
             <div className="overflow-x-auto">
               <table className="w-full text-left text-xs border-collapse">
@@ -2848,7 +2912,7 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
           <div className="flex justify-between items-center bg-slate-950/20 p-4 rounded-xl border border-zinc-800">
             <h3 className="text-sm font-display font-semibold text-zinc-100 flex items-center space-x-2">
               <CreditCard className="w-4.5 h-4.5 text-zinc-400" />
-              <span>Pending Leads Payments ({payments.filter(p => p.status === "Pending").length} requests)</span>
+              <span>Payments Directory ({payments.length} entries)</span>
             </h3>
             <button
               onClick={() => handleExportCSV("payments")}
@@ -2857,6 +2921,24 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
               <FileSpreadsheet className="w-3.5 h-3.5" />
               <span>Export CSV</span>
             </button>
+          </div>
+
+          <div className="bg-slate-950/40 p-4 border border-zinc-850 rounded-xl">
+            <span className="text-[10px] font-mono uppercase tracking-wider text-zinc-400 block mb-1">Filter by Payment Status (Tags Selection)</span>
+            <MultiSelect
+              id="payment-statuses-filter"
+              options={[
+                { value: "Pending", label: "Pending Verification" },
+                { value: "Approved", label: "Approved / Completed" },
+                { value: "Rejected", label: "Rejected / Declined" },
+              ]}
+              selected={filterPaymentStatuses}
+              onChange={(selectedList) => {
+                setFilterPaymentStatuses(selectedList);
+                saveAdminPreferences(filterRoles, filterWithdrawalStatuses, selectedList);
+              }}
+              placeholder="Filter payments..."
+            />
           </div>
 
           {/* Operational Input Remarks Fields */}
@@ -2887,10 +2969,10 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
           </div>
 
           <div className="space-y-3">
-            {payments.length === 0 ? (
-              <p className="text-zinc-500 text-xs text-center py-8">No payment requests filed yet.</p>
+            {payments.filter(p => filterPaymentStatuses.includes(p.status)).length === 0 ? (
+              <p className="text-zinc-500 text-xs text-center py-8">No payments match the selected statuses.</p>
             ) : (
-              payments.map((p) => (
+              payments.filter(p => filterPaymentStatuses.includes(p.status)).map((p) => (
                 <div key={p.id} className="p-4 rounded-xl border border-zinc-800/80 bg-zinc-900/10 flex flex-col sm:flex-row justify-between sm:items-center gap-4">
                   <div className="space-y-1">
                     <div className="flex items-center space-x-2">
@@ -2962,6 +3044,25 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
             </button>
           </div>
 
+          <div className="bg-slate-950/40 p-4 border border-zinc-850 rounded-xl">
+            <span className="text-[10px] font-mono uppercase tracking-wider text-zinc-400 block mb-1">Filter by Withdrawal Status (Tags Selection)</span>
+            <MultiSelect
+              id="withdrawal-statuses-filter"
+              options={[
+                { value: "Pending", label: "Pending Approval" },
+                { value: "Completed", label: "Completed / Paid" },
+                { value: "Approved", label: "Approved / Processing" },
+                { value: "Rejected", label: "Rejected / Declined" },
+              ]}
+              selected={filterWithdrawalStatuses}
+              onChange={(selectedList) => {
+                setFilterWithdrawalStatuses(selectedList);
+                saveAdminPreferences(filterRoles, selectedList, filterPaymentStatuses);
+              }}
+              placeholder="Filter withdrawals..."
+            />
+          </div>
+
           {/* Remarks Field Input */}
           <div className="bg-slate-950/40 p-4 border border-zinc-800 rounded-xl space-y-1">
             <label className="block text-[9px] text-zinc-400 uppercase font-mono mb-1">Administrative Remark / Decline Reason</label>
@@ -2975,10 +3076,10 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
           </div>
 
           <div className="space-y-3">
-            {withdrawals.length === 0 ? (
-              <p className="text-zinc-500 text-xs text-center py-8">No withdrawals submitted yet.</p>
+            {withdrawals.filter(w => filterWithdrawalStatuses.includes(w.status)).length === 0 ? (
+              <p className="text-zinc-500 text-xs text-center py-8">No withdrawals match the selected statuses.</p>
             ) : (
-              withdrawals.map((w) => (
+              withdrawals.filter(w => filterWithdrawalStatuses.includes(w.status)).map((w) => (
                 <div key={w.id} className="p-4 rounded-xl border border-zinc-800/80 bg-zinc-900/10 space-y-3">
                   <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-2">
                     <div>
@@ -5960,10 +6061,16 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
             <div className="space-y-3 pt-2">
               {[
                 { key: "enableRegistration", title: "Affiliate Registrations", desc: "Allow or suspend new user account creation and registrations." },
+                { key: "enableDashboard", title: "Dashboard & Analytics", desc: "Show or hide the user dashboard and main counters." },
                 { key: "enableLeaderboard", title: "Public Leaderboard", desc: "Show or hide the real-time affiliate earnings leaderboard." },
-                { key: "enableWithdrawals", title: "Withdrawal Requests", desc: "Allow users to initiate cash payout requests." },
+                { key: "enableChallenges", title: "Challenges & Incentives", desc: "Allow or suspend access to dynamic affiliate challenges." },
                 { key: "enablePaymentRequests", title: "Payment/Leads Submissions", desc: "Allow users to submit new courses or leads payments verification claims." },
+                { key: "enableWithdrawals", title: "Withdrawal Requests", desc: "Allow users to initiate cash payout requests." },
                 { key: "enableKYCUpload", title: "Bank KYC Submission", desc: "Allow users to upload or update bank KYC information." },
+                { key: "enableNotifications", title: "User Broadcast Notifications", desc: "Show or hide notifications and broadcast notices." },
+                { key: "enableReports", title: "Weekly Income Reports", desc: "Allow or hide performance/weekly analytics reports." },
+                { key: "enableServices", title: "Services Marketplace", desc: "Allow users to buy or renew custom schemes and services." },
+                { key: "enableSettings", title: "System & User Settings", desc: "Allow users to configure profiles, settings, and social links." },
                 { key: "maintenanceMode", title: "Server Maintenance Mode", desc: "Redirect all users to a clean maintenance warning page." },
               ].map((flag: any) => (
                 <div key={flag.key} className="p-4 bg-zinc-950/40 border border-zinc-850 rounded-xl flex items-center justify-between gap-4">
@@ -6154,38 +6261,83 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
                 </div>
               </div>
 
+              <div className="pt-3 border-t border-zinc-900 grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div>
+                  <label className="block text-[10px] text-zinc-400 font-mono uppercase tracking-wider mb-1">User Rank Override</label>
+                  <input
+                    type="text"
+                    value={editCustomRank}
+                    onChange={(e) => setEditCustomRank(e.target.value)}
+                    className="w-full bg-slate-950 border border-zinc-850 rounded-xl py-2 px-3 text-zinc-200 focus:outline-hidden focus:border-amber-500/50 font-mono"
+                    placeholder="e.g. Rank #1, Master"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] text-zinc-400 font-mono uppercase tracking-wider mb-1">User Badge Override</label>
+                  <input
+                    type="text"
+                    value={editCustomBadge}
+                    onChange={(e) => setEditCustomBadge(e.target.value)}
+                    className="w-full bg-slate-950 border border-zinc-850 rounded-xl py-2 px-3 text-zinc-200 focus:outline-hidden focus:border-amber-500/50 font-mono"
+                    placeholder="e.g. Diamond, Superstar"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] text-zinc-400 font-mono uppercase tracking-wider mb-1">Membership Badge Override</label>
+                  <input
+                    type="text"
+                    value={editVipTagText}
+                    onChange={(e) => setEditVipTagText(e.target.value)}
+                    className="w-full bg-slate-950 border border-zinc-850 rounded-xl py-2 px-3 text-zinc-200 focus:outline-hidden focus:border-amber-500/50 font-mono"
+                    placeholder="e.g. 👑 VIP MEMBER"
+                  />
+                </div>
+              </div>
+
               {editRole === "co-founder" && (
                 <div className="bg-zinc-950/60 border border-zinc-850 rounded-xl p-4 space-y-3">
                   <span className="text-[10px] font-mono uppercase tracking-wider text-amber-400 block font-bold">Configure Co-Founder Permissions</span>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
-                    {[
-                      { key: "manageUsers", label: "User Management" },
-                      { key: "manageAccountCreation", label: "Account Creation" },
-                      { key: "managePayments", label: "Payment Approval" },
-                      { key: "manageWithdrawals", label: "Withdrawal Approval" },
-                      { key: "manageChallenges", label: "Challenge Management" },
-                      { key: "manageLeaderboard", label: "Leaderboard" },
-                      { key: "manageAnnouncements", label: "Announcements" },
-                      { key: "manageSettings", label: "Global Settings & Toggles" },
-                      { key: "manageReports", label: "Reports" },
-                      { key: "manageBackup", label: "Storage Monitor & Backup" },
-                      { key: "managePages", label: "Custom Pages Builder" },
-                      { key: "manageNotifications", label: "Notifications Control" },
-                    ].map((perm) => (
-                      <label key={perm.key} className="flex items-center space-x-2 text-zinc-300 hover:text-zinc-100 cursor-pointer select-none">
-                        <input
-                          type="checkbox"
-                          checked={!!editCoFounderPermissions[perm.key as keyof CoFounderPermissions]}
-                          onChange={(e) => setEditCoFounderPermissions({
-                            ...editCoFounderPermissions,
-                            [perm.key as any]: e.target.checked
-                          })}
-                          className="w-4 h-4 rounded-sm border-zinc-700 bg-slate-950 text-amber-500 focus:ring-0"
-                        />
-                        <span>{perm.label}</span>
-                      </label>
-                    ))}
-                  </div>
+                  <MultiSelect
+                    id="edit-cofounder-permissions"
+                    options={[
+                      { value: "manageUsers", label: "User Management" },
+                      { value: "manageAccountCreation", label: "Account Creation" },
+                      { value: "managePayments", label: "Payment Approval" },
+                      { value: "manageWithdrawals", label: "Withdrawal Approval" },
+                      { value: "manageChallenges", label: "Challenge Management" },
+                      { value: "manageLeaderboard", label: "Leaderboard" },
+                      { value: "manageAnnouncements", label: "Announcements" },
+                      { value: "manageSettings", label: "Global Settings & Toggles" },
+                      { value: "manageReports", label: "Reports" },
+                      { value: "manageBackup", label: "Storage Monitor & Backup" },
+                      { value: "managePages", label: "Custom Pages Builder" },
+                      { value: "manageNotifications", label: "Notifications Control" },
+                    ]}
+                    selected={Object.keys(editCoFounderPermissions || {}).filter(
+                      (k) => editCoFounderPermissions[k as keyof CoFounderPermissions]
+                    )}
+                    onChange={(selectedList) => {
+                      const newPerms: any = {
+                        manageUsers: false,
+                        manageAccountCreation: false,
+                        managePayments: false,
+                        manageWithdrawals: false,
+                        manageChallenges: false,
+                        manageLeaderboard: false,
+                        manageAnnouncements: false,
+                        manageSettings: false,
+                        manageReports: false,
+                        manageBackup: false,
+                        managePages: false,
+                        manageNotifications: false,
+                      };
+                      selectedList.forEach((val) => {
+                        newPerms[val] = true;
+                      });
+                      setEditCoFounderPermissions(newPerms);
+                    }}
+                    placeholder="Search and toggle permissions..."
+                  />
                 </div>
               )}
 
