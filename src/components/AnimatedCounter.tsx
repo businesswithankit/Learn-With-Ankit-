@@ -36,8 +36,8 @@ export default function AnimatedCounter({ value, prefix = "₹", duration = 800 
 
   return (
     <span className="font-display font-bold tracking-tight text-amber-400">
-      {prefix}
-      {displayValue.toLocaleString("en-IN", {
+      {displayValue < 0 ? "-" : ""}{prefix}
+      {Math.abs(displayValue).toLocaleString("en-IN", {
         minimumFractionDigits: 2,
         maximumFractionDigits: 2,
       })}

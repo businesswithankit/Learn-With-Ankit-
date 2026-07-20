@@ -272,9 +272,11 @@ export interface RevenueTransaction {
   userId: string;
   username: string;
   amount: number;
-  type: 'premium_purchase' | 'challenge_entry' | 'withdrawal_fee' | 'fast_withdrawal_fee' | 'platform_fee';
+  type: 'premium_purchase' | 'challenge_entry' | 'withdrawal_fee' | 'fast_withdrawal_fee' | 'platform_fee' | 'other_manual_income' | 'ad_cost' | string;
   description: string;
   timestamp: any;
+  title?: string;
+  manualDate?: string;
 }
 
 export interface SocialSettings {

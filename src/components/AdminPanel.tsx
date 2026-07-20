@@ -3,7 +3,7 @@ import { collection, query, onSnapshot, doc, getDoc, updateDoc, setDoc, addDoc, 
 import { createUserWithEmailAndPassword } from "firebase/auth";
 import { db, handleFirestoreError, OperationType, getSecondaryAuth } from "../firebase";
 import { UserProfile, PaymentRequest, WithdrawalRequest, AuditLog, Announcement, Challenge, ChallengeProgress, CoFounderPermissions, ChallengeLead, MembershipPlan, PlatformFees, WithdrawalSettings, PlatformRevenue, RevenueTransaction, Service, ServicePurchase } from "../types";
-import { Users, CreditCard, ShieldCheck, Megaphone, Terminal, Search, UserPlus, Check, X, FileSpreadsheet, PlusCircle, AlertCircle, RefreshCw, Send, DollarSign, ShieldAlert, Settings, Bell, Trophy, Award, Landmark, Hourglass, ClipboardCheck, Sparkles, AlertTriangle, TrendingUp, Coins, Calendar, Clock, Lock, Unlock, Share2, Save, Trash2, Edit, Download } from "lucide-react";
+import { Users, CreditCard, ShieldCheck, Megaphone, Terminal, Search, UserPlus, Check, X, FileSpreadsheet, PlusCircle, AlertCircle, RefreshCw, Send, DollarSign, ShieldAlert, Settings, Bell, Trophy, Award, Landmark, Hourglass, ClipboardCheck, Sparkles, AlertTriangle, TrendingUp, Coins, Calendar, Clock, Lock, Unlock, Share2, Save, Trash2, Edit, Download, Wallet, TrendingDown, ArrowUpRight } from "lucide-react";
 import AnimatedCounter from "./AnimatedCounter";
 import { jsPDF } from "jspdf";
 
@@ -1497,7 +1497,27 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
     }
   };
 
-  const handleAddOrEditSocialLink = () => {
+  const saveSocialLinksDirectly = async (updatedLinks: any[]) => {
+    try {
+      await setDoc(doc(db, "settings", "social"), {
+        instagramEnabled: instEnabled,
+        instagramUrl: instUrl.trim(),
+        youtubeEnabled: ytEnabled,
+        youtubeUrl: ytUrl.trim(),
+        facebookEnabled: fbEnabled,
+        facebookUrl: fbUrl.trim(),
+        pinterestEnabled: pinEnabled,
+        pinterestUrl: pinUrl.trim(),
+        order: socOrder,
+        links: updatedLinks
+      });
+      await writeAuditLog("Settings Updated", "System", "Auto-saved dynamic social media link");
+    } catch (err: any) {
+      console.error("Failed to auto-save social link: ", err);
+    }
+  };
+
+  const handleAddOrEditSocialLink = async () => {
     if (!socialFormName.trim() || !socialFormUrl.trim()) {
       alert("Platform name and URL are required.");
       return;
@@ -1530,6 +1550,7 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
     }
 
     setSocialLinks(updated);
+    await saveSocialLinksDirectly(updated);
     setEditingSocialLink(null);
     setSocialFormName("");
     setSocialFormIcon("youtube");
@@ -1547,14 +1568,15 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
     setSocialFormEnabled(link.enabled);
   };
 
-  const handleDeleteSocialLink = (id: string) => {
+  const handleDeleteSocialLink = async (id: string) => {
     if (confirm("Are you sure you want to remove this social link?")) {
       const updated = socialLinks.filter(l => l.id !== id);
       setSocialLinks(updated);
+      await saveSocialLinksDirectly(updated);
     }
   };
 
-  const handleToggleSocialLink = (id: string) => {
+  const handleToggleSocialLink = async (id: string) => {
     const updated = socialLinks.map(l => {
       if (l.id === id) {
         return { ...l, enabled: !l.enabled };
@@ -1562,6 +1584,7 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
       return l;
     });
     setSocialLinks(updated);
+    await saveSocialLinksDirectly(updated);
   };
 
   // --- PREMIUM & REVENUE SETTINGS HANDLERS ---
@@ -4033,7 +4056,11 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
       {/* 📈 PLATFORM REVENUE ANALYTICS TAB */}
       {activeTab === "revenue" && (() => {
         // Safe timestamp date extractor
-        const getTxDate = (timestamp: any): Date => {
+        const getTxDate = (timestamp: any, manualDate?: string): Date => {
+          if (manualDate) {
+            const parsed = new Date(manualDate);
+            if (!isNaN(parsed.getTime())) return parsed;
+          }
           if (!timestamp) return new Date(0);
           if (typeof timestamp.toDate === "function") return timestamp.toDate();
           if (timestamp.seconds) return new Date(timestamp.seconds * 1000);
@@ -4045,12 +4072,12 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
         let serviceRevenue = 0;
         let withdrawalFeeRevenue = 0;
         let platformFeeRevenue = 0;
-        let otherManualRevenue = 0;
+        let otherRevenue = 0;
+        let totalAdCost = 0;
 
         let todayRevenue = 0;
         let sevenDaysRevenue = 0;
         let thirtyDaysRevenue = 0;
-        let lifetimeRevenue = 0;
 
         const nowMs = Date.now();
         const todayStartMs = new Date().setHours(0, 0, 0, 0);
@@ -4059,54 +4086,72 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
 
         revenueTransactions.forEach(tx => {
           const amount = Number(tx.amount) || 0;
-          const txDate = getTxDate(tx.timestamp);
+          const txDate = getTxDate(tx.timestamp, tx.manualDate);
           const txMs = txDate.getTime();
 
-          // Group by exact type
-          if (tx.type === "premium_purchase" || tx.type === "membership_purchase") {
-            membershipRevenue += amount;
-          } else if (tx.type === "service_purchase") {
-            serviceRevenue += amount;
-          } else if (tx.type === "withdrawal_fee" || tx.type === "fast_withdrawal_fee") {
-            withdrawalFeeRevenue += amount;
-          } else if (tx.type === "platform_fee" || tx.type === "challenge_entry") {
-            platformFeeRevenue += amount;
+          if (tx.type === "ad_cost") {
+            totalAdCost += amount;
           } else {
-            otherManualRevenue += amount;
-          }
+            // Group incoming revenues
+            if (tx.type === "premium_purchase" || tx.type === "membership_purchase") {
+              membershipRevenue += amount;
+            } else if (tx.type === "service_purchase") {
+              serviceRevenue += amount;
+            } else if (tx.type === "withdrawal_fee" || tx.type === "fast_withdrawal_fee") {
+              withdrawalFeeRevenue += amount;
+            } else if (tx.type === "platform_fee" || tx.type === "challenge_entry") {
+              platformFeeRevenue += amount;
+            } else {
+              otherRevenue += amount;
+            }
 
-          // Accumulate time ranges
-          lifetimeRevenue += amount;
-          if (txMs >= todayStartMs) {
-            todayRevenue += amount;
-          }
-          if (txMs >= sevenDaysMs) {
-            sevenDaysRevenue += amount;
-          }
-          if (txMs >= thirtyDaysMs) {
-            thirtyDaysRevenue += amount;
+            // Accumulate incoming time ranges
+            if (txMs >= todayStartMs) {
+              todayRevenue += amount;
+            }
+            if (txMs >= sevenDaysMs) {
+              sevenDaysRevenue += amount;
+            }
+            if (txMs >= thirtyDaysMs) {
+              thirtyDaysRevenue += amount;
+            }
           }
         });
 
+        const totalPlatformRevenue = membershipRevenue + serviceRevenue + withdrawalFeeRevenue + platformFeeRevenue + otherRevenue;
+
+        // Calculate user payouts
+        const totalUserPayout = withdrawals
+          .filter(w => w.status === "Completed")
+          .reduce((acc, w) => acc + (w.withdrawalAmount || 0), 0);
+
+        const totalPendingPayout = withdrawals
+          .filter(w => w.status === "Pending" || w.status === "Approved")
+          .reduce((acc, w) => acc + (w.withdrawalAmount || 0), 0);
+
+        const netProfitLoss = totalPlatformRevenue - totalAdCost - totalUserPayout;
+
         // Find founder wallet balance from users list
         const founderUser = users.find(u => u.role === "founder") || adminUser;
-        const founderWalletBalance = founderUser.walletBalance || 0;
+        const founderWalletBalance = founderUser?.walletBalance || 0;
 
-        // Form Submission for Recording Manual Income
-        const handleRecordManualIncome = async (e: React.FormEvent) => {
+        // Form Submission for Recording Manual Entry
+        const handleRecordManualEntry = async (e: React.FormEvent) => {
           e.preventDefault();
           const form = e.currentTarget as HTMLFormElement;
           const formData = new FormData(form);
+          const titleVal = String(formData.get("manual_title")).trim();
+          const categoryVal = String(formData.get("manual_category"));
           const amountVal = Number(formData.get("manual_amount"));
           const descVal = String(formData.get("manual_desc")).trim();
-          const categoryVal = String(formData.get("manual_category")) as any;
+          const dateVal = String(formData.get("manual_date") || new Date().toISOString().split("T")[0]);
 
-          if (!amountVal || amountVal <= 0) {
-            alert("Please enter a valid positive amount.");
+          if (!titleVal) {
+            alert("Please enter a valid title.");
             return;
           }
-          if (!descVal) {
-            alert("Please enter a description for the manual income.");
+          if (!amountVal || amountVal <= 0) {
+            alert("Please enter a valid positive amount.");
             return;
           }
 
@@ -4116,31 +4161,40 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
             await addDoc(collection(db, "revenueTransactions"), {
               userId: adminUser.userId,
               username: adminUser.username,
+              title: titleVal,
               amount: amountVal,
               type: categoryVal,
-              description: `[Manual Income] ${descVal}`,
+              description: descVal || `Manual entry for ${titleVal}`,
+              manualDate: dateVal,
               timestamp: serverTimestamp(),
             });
 
-            // If a founder exists, increment their wallet balance in the DB
+            // If a founder exists, increment or decrement their wallet balance depending on category
             if (founderUser && founderUser.userId) {
               const founderUserRef = doc(db, "users", founderUser.userId);
               const latestFounderSnap = await getDoc(founderUserRef);
               const currentFounderBal = latestFounderSnap.exists() ? (latestFounderSnap.data()?.walletBalance || 0) : 0;
               
+              // Ad Cost is an expense, so we decrement founder's balance. Others increment it.
+              const delta = categoryVal === "ad_cost" ? -amountVal : amountVal;
+
               await updateDoc(founderUserRef, {
-                walletBalance: currentFounderBal + amountVal
+                walletBalance: currentFounderBal + delta
               });
             }
 
             // Also write audit log
-            await writeAuditLog("Manual Income Logged", adminUser.username, `Recorded ₹${amountVal} manual platform income: ${descVal}`);
+            await writeAuditLog(
+              categoryVal === "ad_cost" ? "Ad Cost Logged" : "Manual Income Logged",
+              adminUser.username,
+              `Recorded ₹${amountVal} ${categoryVal === "ad_cost" ? "expense" : "income"} (${titleVal}): ${descVal}`
+            );
 
-            alert("Manual platform income successfully recorded and credited to Founder Wallet!");
+            alert("Platform transaction successfully recorded and updated!");
             form.reset();
           } catch (err: any) {
             console.error(err);
-            alert("Failed to record manual income: " + err.message);
+            alert("Failed to record manual transaction: " + err.message);
           } finally {
             setActionLoading(null);
           }
@@ -4148,14 +4202,14 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
 
         return (
           <div className="space-y-6 animate-fade-in font-sans">
-            {/* Header */}
+            {/* Header section with Founder Stats */}
             <div className="p-5 rounded-2xl bg-zinc-900/30 border border-zinc-800 flex flex-col md:flex-row md:items-center justify-between gap-4">
               <div>
                 <h2 className="text-base font-display font-bold text-zinc-100 uppercase tracking-widest flex items-center space-x-2">
                   <Coins className="w-5 h-5 text-amber-500" />
                   <span>Platform Revenue Dashboard</span>
                 </h2>
-                <p className="text-xs text-zinc-400">Track all income channels, manage reserves, adjust platform receipts, and check Founder Wallet stats.</p>
+                <p className="text-xs text-zinc-400 mt-1">Track gross income channels, manage platform reserves, monitor liabilities, and verify Net Profit/Loss.</p>
               </div>
               
               {/* Founder Wallet Balance Card */}
@@ -4165,142 +4219,228 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
                 </div>
                 <div>
                   <span className="text-[10px] uppercase tracking-wider text-zinc-400 block font-mono">Founder Wallet Balance</span>
-                  <span className="text-xl font-mono font-bold text-amber-400">₹{founderWalletBalance.toLocaleString("en-IN")}.00</span>
+                  <span className="text-xl font-mono font-bold text-amber-400">
+                    ₹{founderWalletBalance.toLocaleString("en-IN")}.00
+                  </span>
                 </div>
               </div>
             </div>
 
-            {/* Time-Based Period Performance Cards */}
-            <div>
-              <h3 className="text-[10px] uppercase font-mono tracking-widest text-zinc-500 mb-3">🕒 Time-Based Revenue Breakdowns</h3>
+            {/* Time-Based Period Performance & Net profit */}
+            <div className="space-y-3">
+              <h3 className="text-[10px] uppercase font-mono tracking-widest text-zinc-500">🕒 Time-Based Revenue & Profit Summary</h3>
               <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-                <div className="bg-zinc-950/40 p-4 border border-zinc-800/80 rounded-xl space-y-1">
-                  <span className="text-[9px] uppercase tracking-widest font-mono text-zinc-500">Today's Revenue</span>
-                  <p className="text-xl font-display font-black text-emerald-400 font-mono">
-                    ₹{todayRevenue.toLocaleString("en-IN")}.00
+                {/* Net Profit / Loss */}
+                <div className="bg-zinc-950/40 p-4 border border-zinc-850 rounded-xl space-y-1 relative overflow-hidden group col-span-2 lg:col-span-2">
+                  <div className="absolute top-0 right-0 p-3 opacity-10">
+                    <TrendingUp className="w-16 h-16 text-emerald-400" />
+                  </div>
+                  <span className="text-[9px] uppercase tracking-widest font-mono text-zinc-400 block">Net Profit / Loss</span>
+                  <p className="text-2xl font-mono font-black block">
+                    <AnimatedCounter value={netProfitLoss} />
+                  </p>
+                  <p className="text-[10px] text-zinc-500">
+                    Calculated as Platform Revenue - Ad Cost - User Payouts
                   </p>
                 </div>
+
+                {/* Today's Revenue */}
                 <div className="bg-zinc-950/40 p-4 border border-zinc-800/80 rounded-xl space-y-1">
-                  <span className="text-[9px] uppercase tracking-widest font-mono text-zinc-500">7-Day Revenue</span>
-                  <p className="text-xl font-display font-black text-emerald-400 font-mono">
-                    ₹{sevenDaysRevenue.toLocaleString("en-IN")}.00
+                  <span className="text-[9px] uppercase tracking-widest font-mono text-zinc-500 block">Today's Revenue</span>
+                  <p className="text-lg font-mono font-bold text-emerald-400">
+                    <AnimatedCounter value={todayRevenue} />
                   </p>
+                  <p className="text-[9px] text-zinc-500">Gross inflows today</p>
                 </div>
+
+                {/* Weekly Revenue */}
                 <div className="bg-zinc-950/40 p-4 border border-zinc-800/80 rounded-xl space-y-1">
-                  <span className="text-[9px] uppercase tracking-widest font-mono text-zinc-500">30-Day Revenue</span>
-                  <p className="text-xl font-display font-black text-emerald-400 font-mono">
-                    ₹{thirtyDaysRevenue.toLocaleString("en-IN")}.00
+                  <span className="text-[9px] uppercase tracking-widest font-mono text-zinc-500 block">Weekly Revenue</span>
+                  <p className="text-lg font-mono font-bold text-emerald-400">
+                    <AnimatedCounter value={sevenDaysRevenue} />
                   </p>
+                  <p className="text-[9px] text-zinc-500">Last 7 days inflows</p>
                 </div>
+
+                {/* Monthly Revenue */}
                 <div className="bg-zinc-950/40 p-4 border border-zinc-800/80 rounded-xl space-y-1">
-                  <span className="text-[9px] uppercase tracking-widest font-mono text-zinc-500">Lifetime Revenue</span>
-                  <p className="text-xl font-display font-black text-amber-400 font-mono">
-                    ₹{lifetimeRevenue.toLocaleString("en-IN")}.00
+                  <span className="text-[9px] uppercase tracking-widest font-mono text-zinc-500 block">Monthly Revenue</span>
+                  <p className="text-lg font-mono font-bold text-emerald-400">
+                    <AnimatedCounter value={thirtyDaysRevenue} />
                   </p>
+                  <p className="text-[9px] text-zinc-500">Last 30 days inflows</p>
+                </div>
+
+                {/* Grand Total Revenue */}
+                <div className="bg-zinc-950/40 p-4 border border-zinc-800/80 rounded-xl space-y-1">
+                  <span className="text-[9px] uppercase tracking-widest font-mono text-zinc-500 block">Grand Total Revenue</span>
+                  <p className="text-lg font-mono font-bold text-amber-400">
+                    <AnimatedCounter value={totalPlatformRevenue} />
+                  </p>
+                  <p className="text-[9px] text-zinc-500">All-time gross receipts</p>
                 </div>
               </div>
             </div>
 
-            {/* Individual Income Stream Categories */}
-            <div>
-              <h3 className="text-[10px] uppercase font-mono tracking-widest text-zinc-500 mb-3">📊 Individual Revenue Stream Totals</h3>
+            {/* Individual Income Stream Categories & Outflows */}
+            <div className="space-y-3">
+              <h3 className="text-[10px] uppercase font-mono tracking-widest text-zinc-500">📊 Revenue & Outflow Breakdowns</h3>
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
                 
                 {/* Membership Income */}
-                <div className="p-4 bg-zinc-950/40 border border-zinc-900 rounded-xl space-y-2">
-                  <div className="flex items-center space-x-2 text-zinc-400">
+                <div className="p-4 bg-zinc-950/40 border border-zinc-900 rounded-xl space-y-1.5">
+                  <div className="flex items-center space-x-1.5 text-zinc-400">
                     <Award className="w-4 h-4 text-amber-500" />
-                    <span className="text-[10px] font-bold uppercase tracking-wider">Memberships</span>
+                    <span className="text-[9px] font-bold uppercase tracking-wider">Membership Rev</span>
                   </div>
-                  <p className="text-lg font-mono font-bold text-zinc-100">₹{membershipRevenue.toLocaleString("en-IN")}</p>
-                  <p className="text-[9px] text-zinc-500 font-sans">Premium plan upgrades & renewals</p>
+                  <p className="text-lg font-mono font-bold text-zinc-100">
+                    <AnimatedCounter value={membershipRevenue} />
+                  </p>
+                  <p className="text-[9px] text-zinc-500 font-sans leading-tight">Plan upgrades & subscription sales</p>
                 </div>
 
                 {/* Service Income */}
-                <div className="p-4 bg-zinc-950/40 border border-zinc-900 rounded-xl space-y-2">
-                  <div className="flex items-center space-x-2 text-zinc-400">
+                <div className="p-4 bg-zinc-950/40 border border-zinc-900 rounded-xl space-y-1.5">
+                  <div className="flex items-center space-x-1.5 text-zinc-400">
                     <Sparkles className="w-4 h-4 text-blue-500" />
-                    <span className="text-[10px] font-bold uppercase tracking-wider">Services</span>
+                    <span className="text-[9px] font-bold uppercase tracking-wider">Service Rev</span>
                   </div>
-                  <p className="text-lg font-mono font-bold text-zinc-100">₹{serviceRevenue.toLocaleString("en-IN")}</p>
-                  <p className="text-[9px] text-zinc-500 font-sans">1-on-1 calls, setups, custom solutions</p>
+                  <p className="text-lg font-mono font-bold text-zinc-100">
+                    <AnimatedCounter value={serviceRevenue} />
+                  </p>
+                  <p className="text-[9px] text-zinc-500 font-sans leading-tight">1-on-1 support & student audits</p>
                 </div>
 
                 {/* Withdrawal Fee Income */}
-                <div className="p-4 bg-zinc-950/40 border border-zinc-900 rounded-xl space-y-2">
-                  <div className="flex items-center space-x-2 text-zinc-400">
+                <div className="p-4 bg-zinc-950/40 border border-zinc-900 rounded-xl space-y-1.5">
+                  <div className="flex items-center space-x-1.5 text-zinc-400">
                     <Coins className="w-4 h-4 text-emerald-500" />
-                    <span className="text-[10px] font-bold uppercase tracking-wider">Withdrawal Fees</span>
+                    <span className="text-[9px] font-bold uppercase tracking-wider">Withdrawal Fee Rev</span>
                   </div>
-                  <p className="text-lg font-mono font-bold text-zinc-100">₹{withdrawalFeeRevenue.toLocaleString("en-IN")}</p>
-                  <p className="text-[9px] text-zinc-500 font-sans">Standard payout processing fees</p>
+                  <p className="text-lg font-mono font-bold text-zinc-100">
+                    <AnimatedCounter value={withdrawalFeeRevenue} />
+                  </p>
+                  <p className="text-[9px] text-zinc-500 font-sans leading-tight">Processing commissions & standard fees</p>
                 </div>
 
-                {/* Platform Fee Income */}
-                <div className="p-4 bg-zinc-950/40 border border-zinc-900 rounded-xl space-y-2">
-                  <div className="flex items-center space-x-2 text-zinc-400">
+                {/* Other Manual/Platform Fee Revenue */}
+                <div className="p-4 bg-zinc-950/40 border border-zinc-900 rounded-xl space-y-1.5">
+                  <div className="flex items-center space-x-1.5 text-zinc-400">
                     <ShieldCheck className="w-4 h-4 text-purple-500" />
-                    <span className="text-[10px] font-bold uppercase tracking-wider">Platform Fees</span>
+                    <span className="text-[9px] font-bold uppercase tracking-wider">Other Rev / Fees</span>
                   </div>
-                  <p className="text-lg font-mono font-bold text-zinc-100">₹{platformFeeRevenue.toLocaleString("en-IN")}</p>
-                  <p className="text-[9px] text-zinc-500 font-sans">Challenges & gateway commission cuts</p>
+                  <p className="text-lg font-mono font-bold text-zinc-100">
+                    <AnimatedCounter value={platformFeeRevenue + otherRevenue} />
+                  </p>
+                  <p className="text-[9px] text-zinc-500 font-sans leading-tight">Challenges & custom manual sponsorships</p>
                 </div>
 
-                {/* Other Manual Income */}
-                <div className="p-4 bg-zinc-950/40 border border-zinc-900 rounded-xl space-y-2">
-                  <div className="flex items-center space-x-2 text-zinc-400">
-                    <PlusCircle className="w-4 h-4 text-teal-500" />
-                    <span className="text-[10px] font-bold uppercase tracking-wider">Manual Receipts</span>
+                {/* Total Ad Cost */}
+                <div className="p-4 bg-zinc-950/40 border border-zinc-900 rounded-xl space-y-1.5">
+                  <div className="flex items-center space-x-1.5 text-zinc-400">
+                    <TrendingDown className="w-4 h-4 text-red-500" />
+                    <span className="text-[9px] font-bold uppercase tracking-wider">Total Ad Cost</span>
                   </div>
-                  <p className="text-lg font-mono font-bold text-zinc-100">₹{otherManualRevenue.toLocaleString("en-IN")}</p>
-                  <p className="text-[9px] text-zinc-500 font-sans">Outside sponsors, offline payments</p>
+                  <p className="text-lg font-mono font-bold text-red-400">
+                    <AnimatedCounter value={totalAdCost} />
+                  </p>
+                  <p className="text-[9px] text-zinc-500 font-sans leading-tight">Spent on advertising campaigns</p>
+                </div>
+
+                {/* Total User Payout */}
+                <div className="p-4 bg-zinc-950/40 border border-zinc-900 rounded-xl space-y-1.5">
+                  <div className="flex items-center space-x-1.5 text-zinc-400">
+                    <ArrowUpRight className="w-4 h-4 text-orange-500" />
+                    <span className="text-[9px] font-bold uppercase tracking-wider">Total User Payout</span>
+                  </div>
+                  <p className="text-lg font-mono font-bold text-zinc-200">
+                    <AnimatedCounter value={totalUserPayout} />
+                  </p>
+                  <p className="text-[9px] text-zinc-500 font-sans leading-tight">Successfully disbursed disbursements</p>
+                </div>
+
+                {/* Total Pending Payout */}
+                <div className="p-4 bg-zinc-950/40 border border-zinc-900 rounded-xl space-y-1.5">
+                  <div className="flex items-center space-x-1.5 text-zinc-400">
+                    <Hourglass className="w-4 h-4 text-yellow-500" />
+                    <span className="text-[9px] font-bold uppercase tracking-wider">Total Pending Payout</span>
+                  </div>
+                  <p className="text-lg font-mono font-bold text-yellow-400">
+                    <AnimatedCounter value={totalPendingPayout} />
+                  </p>
+                  <p className="text-[9px] text-zinc-500 font-sans leading-tight">Awaiting verification/processing</p>
                 </div>
 
               </div>
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              {/* Record Other Manual Income Form */}
+              {/* Record Manual Revenue / Expense Entry */}
               <div className="bg-slate-950/20 border border-zinc-850 rounded-2xl p-6 shadow-xl space-y-4">
-                <h3 className="text-sm font-display font-semibold text-zinc-100 uppercase tracking-wider flex items-center space-x-2">
-                  <PlusCircle className="w-5 h-5 text-teal-400" />
-                  <span>Record Platform Income (Manual Receipt)</span>
-                </h3>
-                <p className="text-xs text-zinc-400">Log sponsorship contracts, offline student collections, or administrative receipts. This auto-credits the Founder Wallet.</p>
+                <div className="flex items-center justify-between">
+                  <h3 className="text-sm font-display font-semibold text-zinc-100 uppercase tracking-wider flex items-center space-x-2">
+                    <PlusCircle className="w-5 h-5 text-teal-400" />
+                    <span>Log Manual Revenue / Expense Entry</span>
+                  </h3>
+                </div>
+                <p className="text-xs text-zinc-400">Directly enter offline payments, sponsor deals, software costs, or advertising expenses. These update your analytics in real time.</p>
 
-                <form onSubmit={handleRecordManualIncome} className="space-y-4">
+                <form onSubmit={handleRecordManualEntry} className="space-y-4">
                   <div className="grid grid-cols-2 gap-4">
                     <div>
-                      <label className="block text-[10px] text-zinc-400 uppercase font-mono mb-1">Income Source Category</label>
+                      <label className="block text-[10px] text-zinc-400 uppercase font-mono mb-1">Entry Title *</label>
+                      <input
+                        type="text"
+                        name="manual_title"
+                        required
+                        placeholder="e.g. YouTube Ad Campaign July"
+                        className="w-full bg-slate-950 border border-zinc-800 rounded-xl py-2 px-3 text-xs text-zinc-300"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] text-zinc-400 uppercase font-mono mb-1">Transaction Category</label>
                       <select
                         name="manual_category"
                         className="w-full bg-slate-950 border border-zinc-800 rounded-xl py-2 px-3 text-xs text-zinc-300"
                       >
-                        <option value="other_manual_income">Other Manual Income</option>
-                        <option value="platform_fee">Platform / Corporate Sponsorship</option>
-                        <option value="membership_purchase">Manual Membership Sale</option>
-                        <option value="service_purchase">Manual Service Sale</option>
+                        <option value="other_manual_income">Other Income (Revenue)</option>
+                        <option value="ad_cost">Ad Cost / Campaign (Expense)</option>
+                        <option value="membership_purchase">Membership Plan (Revenue)</option>
+                        <option value="service_purchase">Premium Service (Revenue)</option>
+                        <option value="withdrawal_fee">Withdrawal processing fee (Revenue)</option>
+                        <option value="platform_fee">Platform fee commission (Revenue)</option>
                       </select>
                     </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4">
                     <div>
-                      <label className="block text-[10px] text-zinc-400 uppercase font-mono mb-1">Income Amount (₹) *</label>
+                      <label className="block text-[10px] text-zinc-400 uppercase font-mono mb-1">Amount (₹) *</label>
                       <input
                         type="number"
                         name="manual_amount"
                         required
-                        placeholder="e.g. 1500"
+                        placeholder="e.g. 5000"
+                        className="w-full bg-slate-950 border border-zinc-800 rounded-xl py-2 px-3 text-xs text-zinc-300 font-mono"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] text-zinc-400 uppercase font-mono mb-1">Transaction Date</label>
+                      <input
+                        type="date"
+                        name="manual_date"
+                        defaultValue={new Date().toISOString().split("T")[0]}
                         className="w-full bg-slate-950 border border-zinc-800 rounded-xl py-2 px-3 text-xs text-zinc-300 font-mono"
                       />
                     </div>
                   </div>
 
                   <div>
-                    <label className="block text-[10px] text-zinc-400 uppercase font-mono mb-1">Receipt Particulars / Description *</label>
-                    <input
-                      type="text"
+                    <label className="block text-[10px] text-zinc-400 uppercase font-mono mb-1">Detailed Description</label>
+                    <textarea
                       name="manual_desc"
-                      required
-                      placeholder="e.g. YouTube sponsor deal with TechBrand"
+                      rows={2}
+                      placeholder="Specify payment method, receipts, particulars..."
                       className="w-full bg-slate-950 border border-zinc-800 rounded-xl py-2 px-3 text-xs text-zinc-300"
                     />
                   </div>
@@ -4311,8 +4451,12 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
                       disabled={actionLoading === "record_manual_income"}
                       className="px-5 py-2 bg-gradient-to-r from-teal-500 to-emerald-500 hover:from-teal-600 hover:to-emerald-600 text-slate-950 font-bold text-xs rounded-xl shadow-md flex items-center space-x-1.5"
                     >
-                      {actionLoading === "record_manual_income" ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
-                      <span>Save Income & Credit Founder Wallet</span>
+                      {actionLoading === "record_manual_income" ? (
+                        <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <Save className="w-3.5 h-3.5" />
+                      )}
+                      <span>Save Entry & Update Balances</span>
                     </button>
                   </div>
                 </form>
@@ -4322,28 +4466,36 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
               <div className="bg-slate-950/20 border border-zinc-850 rounded-2xl p-6 shadow-xl space-y-4">
                 <h3 className="text-sm font-display font-semibold text-zinc-100 uppercase tracking-wider flex items-center space-x-2">
                   <Terminal className="w-5 h-5 text-amber-500" />
-                  <span>Recent Platform Capital Inflows</span>
+                  <span>Recent Platform Financial Transactions</span>
                 </h3>
 
-                <div className="space-y-3 max-h-[280px] overflow-y-auto pr-1">
+                <div className="space-y-3 max-h-[320px] overflow-y-auto pr-1">
                   {revenueTransactions.length === 0 ? (
                     <div className="text-center py-12 text-zinc-500 font-sans italic">
                       No transactions captured in active ledger sessions.
                     </div>
                   ) : (
-                    revenueTransactions.slice(0, 10).map((tx) => (
-                      <div key={tx.id} className="p-3 bg-zinc-950/40 border border-zinc-900 rounded-xl flex justify-between items-center text-[11px]">
-                        <div>
-                          <span className="font-semibold text-zinc-200 block truncate max-w-[200px]">{tx.description}</span>
-                          <span className="text-[9px] text-zinc-500 font-mono block">
-                            User: {tx.username} • {tx.timestamp?.seconds ? new Date(tx.timestamp.seconds * 1000).toLocaleString("en-IN") : "Just now"}
+                    revenueTransactions.slice(0, 12).map((tx) => {
+                      const isAd = tx.type === "ad_cost";
+                      return (
+                        <div key={tx.id} className="p-3 bg-zinc-950/40 border border-zinc-900 rounded-xl flex justify-between items-center text-[11px] hover:border-zinc-800 transition-colors">
+                          <div>
+                            <span className="font-semibold text-zinc-200 block truncate max-w-[220px]">
+                              {tx.title || tx.description}
+                            </span>
+                            <span className="text-[9px] text-zinc-500 font-mono block">
+                              Category: {tx.type.toUpperCase()} • {tx.manualDate || (tx.timestamp?.seconds ? new Date(tx.timestamp.seconds * 1000).toLocaleDateString("en-IN") : "Just now")}
+                            </span>
+                            {tx.title && tx.description && (
+                              <p className="text-[10px] text-zinc-400 mt-1 font-sans">{tx.description}</p>
+                            )}
+                          </div>
+                          <span className={`font-bold font-mono shrink-0 ml-2 ${isAd ? "text-red-400" : "text-emerald-400"}`}>
+                            {isAd ? "-" : "+"}₹{(tx.amount || 0).toLocaleString("en-IN")}
                           </span>
                         </div>
-                        <span className="text-emerald-400 font-bold font-mono shrink-0 ml-2">
-                          +₹{tx.amount}
-                        </span>
-                      </div>
-                    ))
+                      );
+                    })
                   )}
                 </div>
               </div>
