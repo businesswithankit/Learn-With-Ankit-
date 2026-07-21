@@ -81,6 +81,8 @@ export default function App() {
         setFeatureToggles((prev: any) => ({ ...prev, ...data }));
         setMaintenanceMode(!!data.maintenanceMode);
       }
+    }, (err) => {
+      console.warn("Features settings subscription error (using default toggles):", err);
     });
 
     // Listen to website settings for dynamic titles, colors, support info, footer, etc.
@@ -88,6 +90,8 @@ export default function App() {
       if (snapshot.exists()) {
         setWebsiteSettings(snapshot.data());
       }
+    }, (err) => {
+      console.warn("Website settings subscription error (using fallback defaults):", err);
     });
 
     // Listen to custom pages in real-time
@@ -100,6 +104,8 @@ export default function App() {
         }
       });
       setCustomPages(list);
+    }, (err) => {
+      console.warn("Custom pages subscription error (using empty fallback list):", err);
     });
 
     return () => {
@@ -119,85 +125,103 @@ export default function App() {
   }, [maintenanceMode, currentUser]);
 
   useEffect(() => {
+    let unsubscribeProfile: (() => void) | null = null;
+    let unsubscribePayments: (() => void) | null = null;
+
     // Synchronize Auth user state
     const unsubscribeAuth = onAuthStateChanged(auth, (authUser) => {
+      // Clean up any existing listeners
+      if (unsubscribeProfile) {
+        unsubscribeProfile();
+        unsubscribeProfile = null;
+      }
+      if (unsubscribePayments) {
+        unsubscribePayments();
+        unsubscribePayments = null;
+      }
+
       if (authUser) {
         // Listen to User Profile changes in real-time
         const userRef = doc(db, "users", authUser.uid);
         
-        const unsubscribeProfile = onSnapshot(userRef, async (snapshot) => {
-          if (snapshot.exists()) {
-            const data = snapshot.data() as UserProfile;
-            
-            // Enforce Maintenance Mode: Only Founder/Admin allowed
-            if (maintenanceMode && data.role !== "founder" && data.role !== "admin") {
-              await signOut(auth);
-              setCurrentUser(null);
-              setLoginError("Maintenance Mode Activated. Please try again later.");
-              setAuthLoading(false);
-              return;
-            }
-            
-            // Check if user is suspended (banned) and whether the ban duration has expired
-            if (data.accountStatus === "Suspended" && data.bannedUntil && data.bannedUntil !== "Permanent") {
-              const bannedUntilMs = typeof data.bannedUntil === "number" ? data.bannedUntil : new Date(data.bannedUntil).getTime();
-              if (Date.now() > bannedUntilMs) {
-                // Ban duration has expired! Automatically restore account status to Active
-                try {
-                  await updateDoc(userRef, {
-                    accountStatus: "Active",
-                    bannedUntil: null,
-                    bannedReason: null
-                  });
-                  return; // The next snapshot trigger will update the UI
-                } catch (err) {
-                  console.error("Failed to automatically unban user:", err);
+        unsubscribeProfile = onSnapshot(userRef, async (snapshot) => {
+          try {
+            if (snapshot.exists()) {
+              const data = snapshot.data() as UserProfile;
+              
+              // Enforce Maintenance Mode: Only Founder/Admin allowed
+              if (maintenanceMode && data.role !== "founder" && data.role !== "admin") {
+                await signOut(auth);
+                setCurrentUser(null);
+                setLoginError("Maintenance Mode Activated. Please try again later.");
+                setAuthLoading(false);
+                return;
+              }
+              
+              // Check if user is suspended (banned) and whether the ban duration has expired
+              if (data.accountStatus === "Suspended" && data.bannedUntil && data.bannedUntil !== "Permanent") {
+                const bannedUntilMs = typeof data.bannedUntil === "number" ? data.bannedUntil : new Date(data.bannedUntil).getTime();
+                if (Date.now() > bannedUntilMs) {
+                  // Ban duration has expired! Automatically restore account status to Active
+                  try {
+                    await updateDoc(userRef, {
+                      accountStatus: "Active",
+                      bannedUntil: null,
+                      bannedReason: null
+                    });
+                    return; // The next snapshot trigger will update the UI
+                  } catch (err) {
+                    console.error("Failed to automatically unban user:", err);
+                  }
                 }
               }
-            }
-            
-            setCurrentUser(data);
+              
+              setCurrentUser(data);
 
-            // Log Login event once per session
-            if (!sessionStorage.getItem("logged_in_audit")) {
-              sessionStorage.setItem("logged_in_audit", "true");
-              logAuditAction(
-                data.userId,
-                data.username,
-                "Login",
-                "Self",
-                `User logged in successfully with role: ${data.role}`
-              );
-            }
-          } else {
-            // Document doesn't exist, check if bootstrap admin is logging in
-            if (authUser.email === "anmolkumar10290@gmail.com") {
-              const profile: UserProfile = {
-                userId: authUser.uid,
-                customUserId: "LWA-ADMIN",
-                username: "Anmol Kumar",
-                email: "anmolkumar10290@gmail.com",
-                phone: "",
-                state: "",
-                role: "admin",
-                badge: "Diamond",
-                accountStatus: "Active",
-                joinDate: new Date().toLocaleDateString("en-IN"),
-                walletBalance: 0,
-                totalEarnings: 0,
-                todayEarnings: 0,
-                last7DaysEarnings: 0,
-                last30DaysEarnings: 0,
-                todayEarningsDate: new Date().toLocaleDateString("en-CA"),
-              };
-              await setDoc(userRef, profile);
-              setCurrentUser(profile);
+              // Log Login event once per session
+              if (!sessionStorage.getItem("logged_in_audit")) {
+                sessionStorage.setItem("logged_in_audit", "true");
+                logAuditAction(
+                  data.userId,
+                  data.username,
+                  "Login",
+                  "Self",
+                  `User logged in successfully with role: ${data.role}`
+                );
+              }
             } else {
-              // Sign out if profile is corrupted
-              signOut(auth);
+              // Document doesn't exist, check if bootstrap admin is logging in
+              if (authUser.email === "anmolkumar10290@gmail.com") {
+                const profile: UserProfile = {
+                  userId: authUser.uid,
+                  customUserId: "LWA-ADMIN",
+                  username: "Anmol Kumar",
+                  email: "anmolkumar10290@gmail.com",
+                  phone: "",
+                  state: "",
+                  role: "admin",
+                  badge: "Diamond",
+                  accountStatus: "Active",
+                  joinDate: new Date().toLocaleDateString("en-IN"),
+                  walletBalance: 0,
+                  totalEarnings: 0,
+                  todayEarnings: 0,
+                  last7DaysEarnings: 0,
+                  last30DaysEarnings: 0,
+                  todayEarningsDate: new Date().toLocaleDateString("en-CA"),
+                };
+                await setDoc(userRef, profile);
+                setCurrentUser(profile);
+              } else {
+                // Sign out if profile is corrupted
+                signOut(auth);
+              }
             }
+          } catch (snapshotErr) {
+            console.error("Error inside profile snapshot handler:", snapshotErr);
+          } finally {
+            setAuthLoading(false);
           }
-          setAuthLoading(false);
         }, (err) => {
           console.error("User profile read error:", err);
           setAuthLoading(false);
@@ -209,15 +233,15 @@ export default function App() {
           where("userId", "==", authUser.uid),
           where("status", "==", "Approved")
         );
-        const unsubscribePayments = onSnapshot(qPayments, async (paySnapshot) => {
-          const userPaymentsList: PaymentRequest[] = [];
-          paySnapshot.forEach((pDoc) => {
-            userPaymentsList.push({ id: pDoc.id, ...pDoc.data() } as PaymentRequest);
-          });
-          
-          const rolling = calculateUserRollingEarnings(userPaymentsList);
-          
+        unsubscribePayments = onSnapshot(qPayments, async (paySnapshot) => {
           try {
+            const userPaymentsList: PaymentRequest[] = [];
+            paySnapshot.forEach((pDoc) => {
+              userPaymentsList.push({ id: pDoc.id, ...pDoc.data() } as PaymentRequest);
+            });
+            
+            const rolling = calculateUserRollingEarnings(userPaymentsList);
+            
             const userSnap = await getDoc(userRef);
             if (userSnap.exists()) {
               const userData = userSnap.data() as UserProfile;
@@ -243,18 +267,17 @@ export default function App() {
         }, (payErr) => {
           console.error("Approved payments rolling sync error:", payErr);
         });
-
-        return () => {
-          unsubscribeProfile();
-          unsubscribePayments();
-        };
       } else {
         setCurrentUser(null);
         setAuthLoading(false);
       }
     });
 
-    return () => unsubscribeAuth();
+    return () => {
+      unsubscribeAuth();
+      if (unsubscribeProfile) unsubscribeProfile();
+      if (unsubscribePayments) unsubscribePayments();
+    };
   }, []);
 
   const handleLogin = async (e: React.FormEvent) => {
@@ -638,7 +661,7 @@ export default function App() {
             </button>
           )}
 
-          <NotificationsDropdown userId={currentUser.userId} userRole={currentUser.role} />
+          <NotificationsDropdown userId={currentUser?.userId || ""} userRole={currentUser?.role || "user"} />
           
           <button
             onClick={handleLogout}
@@ -686,36 +709,36 @@ export default function App() {
               {/* Profile Top bar */}
               <div className="flex flex-col sm:flex-row items-center justify-between p-5 rounded-2xl glass-panel border border-zinc-800 shadow-xl gap-4">
                 <div className="flex items-center space-x-4">
-                  {currentUser.profilePic ? (
+                  {currentUser?.profilePic ? (
                     <img
                       src={currentUser.profilePic}
-                      alt={currentUser.username}
+                      alt={currentUser.username || "User"}
                       className="w-14 h-14 rounded-xl object-cover border border-zinc-800"
                       referrerPolicy="no-referrer"
                     />
                   ) : (
                     <div className="w-14 h-14 rounded-xl bg-gradient-to-tr from-zinc-800 to-zinc-900 border border-zinc-700/60 flex items-center justify-center font-display font-extrabold text-zinc-300 text-lg">
-                      {(currentUser.username || "U").charAt(0).toUpperCase()}
+                      {(currentUser?.username || "U").charAt(0).toUpperCase()}
                     </div>
                   )}
                   <div className="font-sans space-y-0.5">
                     <div className="flex items-center space-x-2">
-                      <h2 className="text-base font-display font-bold text-zinc-100">{currentUser.username || "User"}</h2>
+                      <h2 className="text-base font-display font-bold text-zinc-100">{currentUser?.username || "User"}</h2>
                       <span className="text-[9px] uppercase tracking-widest font-bold bg-amber-500/10 border border-amber-500/30 text-amber-400 px-1.5 py-0.5 rounded-sm">
-                        {currentUser.accountStatus || "Active"}
+                        {currentUser?.accountStatus || "Active"}
                       </span>
                     </div>
-                    <p className="text-[10px] text-zinc-500 font-mono">Affiliate User ID: {currentUser.customUserId || currentUser.userId}</p>
-                    <p className="text-[10px] text-zinc-400">Join Date: {currentUser.joinDate || "N/A"}</p>
+                    <p className="text-[10px] text-zinc-500 font-mono">Affiliate User ID: {currentUser?.customUserId || currentUser?.userId || "N/A"}</p>
+                    <p className="text-[10px] text-zinc-400">Join Date: {currentUser?.joinDate || "N/A"}</p>
                   </div>
                 </div>
 
                 <div className="flex space-x-3 items-center">
                   <div className="text-center bg-slate-950/65 px-4 py-2 rounded-xl border border-zinc-900">
                     <span className="text-[8px] uppercase tracking-wider text-zinc-500 font-mono block">Achievement level</span>
-                    <span className="text-xs font-display font-bold text-amber-400">★ {(currentUser.customBadge || currentUser.badge || "Bronze").toUpperCase()} Badge</span>
+                    <span className="text-xs font-display font-bold text-amber-400">★ {(currentUser?.customBadge || currentUser?.badge || "Bronze").toUpperCase()} Badge</span>
                   </div>
-                  {(currentUser as any).customRank && (
+                  {currentUser && (currentUser as any).customRank && (
                     <div className="text-center bg-slate-950/65 px-4 py-2 rounded-xl border border-zinc-900">
                       <span className="text-[8px] uppercase tracking-wider text-zinc-500 font-mono block">Custom Rank</span>
                       <span className="text-xs font-display font-bold text-emerald-400">{(currentUser as any).customRank}</span>
@@ -735,25 +758,25 @@ export default function App() {
                   <div className="bg-zinc-950/35 border border-zinc-900/80 rounded-xl p-4 space-y-2 hover:border-zinc-800 transition-colors">
                     <span className="text-[10px] uppercase font-mono text-zinc-500 tracking-wider block">Today's Earnings</span>
                     <div className="text-xl font-display">
-                      <AnimatedCounter value={currentUser.todayEarnings || 0} />
+                      <AnimatedCounter value={currentUser?.todayEarnings || 0} />
                     </div>
                   </div>
                   <div className="bg-zinc-950/35 border border-zinc-900/80 rounded-xl p-4 space-y-2 hover:border-zinc-800 transition-colors">
                     <span className="text-[10px] uppercase font-mono text-zinc-500 tracking-wider block">Last 7 Days Earnings</span>
                     <div className="text-xl font-display">
-                      <AnimatedCounter value={currentUser.last7DaysEarnings || 0} />
+                      <AnimatedCounter value={currentUser?.last7DaysEarnings || 0} />
                     </div>
                   </div>
                   <div className="bg-zinc-950/35 border border-zinc-900/80 rounded-xl p-4 space-y-2 hover:border-zinc-800 transition-colors">
                     <span className="text-[10px] uppercase font-mono text-zinc-500 tracking-wider block">Last 30 Days Earnings</span>
                     <div className="text-xl font-display">
-                      <AnimatedCounter value={currentUser.last30DaysEarnings || 0} />
+                      <AnimatedCounter value={currentUser?.last30DaysEarnings || 0} />
                     </div>
                   </div>
                   <div className="bg-zinc-950/35 border border-zinc-900/80 rounded-xl p-4 space-y-2 hover:border-zinc-800 transition-colors">
                     <span className="text-[10px] uppercase font-mono text-zinc-500 tracking-wider block">Lifetime Cumulative Earnings</span>
                     <div className="text-xl font-display">
-                      <AnimatedCounter value={currentUser.totalEarnings || 0} />
+                      <AnimatedCounter value={currentUser?.totalEarnings || 0} />
                     </div>
                   </div>
                 </div>
@@ -762,7 +785,7 @@ export default function App() {
               {/* Wallet Card Center Stage */}
               <div className="flex flex-col items-center space-y-4 pt-4 border-t border-zinc-900 pb-4">
                 <h3 className="text-xs font-mono uppercase tracking-widest text-zinc-500">Premium Wallet Balance Card</h3>
-                <WalletCard balance={currentUser.walletBalance} username={currentUser.username} />
+                <WalletCard balance={currentUser?.walletBalance ?? 0} username={currentUser?.username || "User"} />
               </div>
 
               {/* Dashboard Social Footer */}

@@ -60,7 +60,7 @@ export default function WithdrawalSection({ user, onUpdateUser }: WithdrawalSect
       
       if (type === "fixed") {
         calculated = fixed;
-      } else if (type === "percent") {
+      } else if (type === "percent" || type === "percentage") {
         calculated = (Number(withdrawalAmount) * percent) / 100;
       } else if (type === "hybrid") {
         calculated = fixed + ((Number(withdrawalAmount) * percent) / 100);

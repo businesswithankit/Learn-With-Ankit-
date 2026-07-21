@@ -140,7 +140,7 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
   const [editCustomRank, setEditCustomRank] = useState("");
   const [editCustomBadge, setEditCustomBadge] = useState("");
   const [editVipTagText, setEditVipTagText] = useState("");
-  const [editRole, setEditRole] = useState<"founder" | "admin" | "co-founder" | "user">("user");
+  const [editRole, setEditRole] = useState<"founder" | "admin" | "co-founder" | "co_founder" | "user">("user");
   const [editCoFounderPermissions, setEditCoFounderPermissions] = useState<CoFounderPermissions>({
     manageUsers: false,
     manageAccountCreation: false,
@@ -277,7 +277,7 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
   const [planBadgeStyle, setPlanBadgeStyle] = useState("");
 
   // Fees manager form state
-  const [withdrawalFeeType, setWithdrawalFeeType] = useState<"fixed" | "percent" | "hybrid">("fixed");
+  const [withdrawalFeeType, setWithdrawalFeeType] = useState<"fixed" | "percent" | "percentage" | "hybrid">("fixed");
   const [withdrawalFeeFixed, setWithdrawalFeeFixed] = useState<number>(0);
   const [withdrawalFeePercent, setWithdrawalFeePercent] = useState<number>(0);
   const [withdrawalFeeMin, setWithdrawalFeeMin] = useState<number>(0);
@@ -1946,7 +1946,7 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
           docPdf.text(`${p.username ? p.username.substring(0, 20) : "N/A"}`, 45, y);
           docPdf.text(`${p.totalLeads || 0}`, 110, y);
           docPdf.text(`INR ${p.totalAmount || 0}`, 140, y);
-          docPdf.text(`${(p.remark || "Approved").substring(0, 12)}`, 170, y);
+          docPdf.text(`${((p as any).remark || p.adminRemark || p.txId || "Approved").substring(0, 12)}`, 170, y);
           y += 6;
         });
       }
@@ -2747,7 +2747,7 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
                   type="text"
                   placeholder="Delhi"
                   value={createState}
-                  onChange={(e) => createState(e.target.value)}
+                  onChange={(e) => setCreateState(e.target.value)}
                   className="w-full bg-slate-950/50 border border-zinc-800 rounded-xl py-2 px-3.5 text-xs text-zinc-200 focus:outline-hidden focus:border-red-500/50"
                 />
               </div>

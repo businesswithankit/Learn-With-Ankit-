@@ -56,7 +56,17 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
     path
   };
   console.error('Firestore Error Detailed Info:', JSON.stringify(errInfo, null, 2));
-  throw new Error(JSON.stringify(errInfo));
+  
+  // Only throw a fatal error for writes/updates so UI try-catch forms can react,
+  // do NOT throw for background real-time read/list subscription errors (GET/LIST) as it crashes React rendering.
+  if (
+    operationType === OperationType.CREATE ||
+    operationType === OperationType.UPDATE ||
+    operationType === OperationType.DELETE ||
+    operationType === OperationType.WRITE
+  ) {
+    throw new Error(JSON.stringify(errInfo));
+  }
 }
 
 // Verify Firestore connection on load

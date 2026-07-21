@@ -527,12 +527,12 @@ export default function ChallengesSection({ user, onUpdateUser }: ChallengesSect
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             {challenges.map((challenge) => {
-              const prog = progresses[challenge.id] || {
+              const prog = (progresses[challenge.id] || {
                 completedCount: 0,
                 target: challenge.target,
                 rewardClaimed: false,
                 status: "active",
-              };
+              }) as ChallengeProgress;
 
               const pct = Math.min(Math.round((prog.completedCount / challenge.target) * 100), 100);
               const isFinished = prog.completedCount >= challenge.target;

@@ -28,7 +28,7 @@ export interface UserProfile {
   last7DaysEarnings: number;
   last30DaysEarnings: number;
   profilePic?: string;
-  role: 'founder' | 'admin' | 'co-founder' | 'user';
+  role: 'founder' | 'admin' | 'co-founder' | 'co_founder' | 'user';
   badge: 'Bronze' | 'Silver' | 'Gold' | 'Diamond';
   kycName?: string;
   kycUpiId?: string;
@@ -216,10 +216,12 @@ export interface MembershipPlan {
   };
   isActive: boolean;
   createdAt: any;
+  badgeStyle?: string;
+  vipBenefits?: string[];
 }
 
 export interface PlatformFees {
-  withdrawalFeeType: 'fixed' | 'percentage' | 'hybrid';
+  withdrawalFeeType: 'fixed' | 'percent' | 'percentage' | 'hybrid';
   withdrawalFeeFixed: number;
   withdrawalFeePercent: number;
   withdrawalFeeMin: number;
