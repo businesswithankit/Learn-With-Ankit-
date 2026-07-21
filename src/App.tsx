@@ -359,6 +359,36 @@ export default function App() {
     }
   };
 
+  const sidebarNavItems = [
+    { id: "dashboard", label: "Dashboard", icon: <Layers className="w-4.5 h-4.5" />, show: featureToggles.enableDashboard !== false },
+    { id: "payment", label: "Payment Claims", icon: <CreditCard className="w-4.5 h-4.5" />, show: featureToggles.enablePaymentRequests !== false },
+    { id: "withdrawal", label: "Withdrawals", icon: <Landmark className="w-4.5 h-4.5" />, show: featureToggles.enableWithdrawals !== false },
+    { id: "history", label: "History Log", icon: <History className="w-4.5 h-4.5" />, show: true },
+    { id: "leaderboard", label: "Leaderboard", icon: <Trophy className="w-4.5 h-4.5" />, show: featureToggles.enableLeaderboard !== false },
+    { id: "challenge", label: "Challenges", icon: <Award className="w-4.5 h-4.5" />, show: featureToggles.enableChallenges !== false },
+    { id: "kyc", label: "KYC Verification", icon: <Shield className="w-4.5 h-4.5" />, show: featureToggles.enableKYCUpload !== false },
+    { id: "services", label: "Services", icon: <Sparkles className="w-4.5 h-4.5 text-amber-500/80" />, show: featureToggles.enableServices !== false },
+    { id: "profile", label: "My Profile", icon: <User className="w-4.5 h-4.5" />, show: featureToggles.enableSettings !== false },
+    ...customPages.map((page) => ({
+      id: `custom_page_${page.slug}`,
+      label: page.title,
+      icon: <Layers className="w-4.5 h-4.5 text-amber-500/80" />,
+      show: true
+    })),
+    ...(currentUser && (currentUser.role === "admin" || currentUser.role === "founder" || currentUser.role === "co-founder" || currentUser.role === "co_founder")
+      ? [{ id: "admin", label: "Admin Console", icon: <ShieldAlert className="w-4.5 h-4.5 text-red-400" />, show: true }] 
+      : [])
+  ].filter(item => item.show);
+
+  useEffect(() => {
+    if (currentUser && sidebarNavItems.length > 0) {
+      const isCurrentPageVisible = sidebarNavItems.some(item => item.id === activePage || (activePage.startsWith("custom_page_") && item.id === activePage));
+      if (!isCurrentPageVisible) {
+        setActivePage(sidebarNavItems[0].id as any);
+      }
+    }
+  }, [featureToggles, activePage, currentUser]);
+
   if (authLoading) {
     return (
       <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center space-y-4">
@@ -578,36 +608,6 @@ export default function App() {
       default: return null;
     }
   })();
-
-  const sidebarNavItems = [
-    { id: "dashboard", label: "Dashboard", icon: <Layers className="w-4.5 h-4.5" />, show: featureToggles.enableDashboard !== false },
-    { id: "payment", label: "Payment Claims", icon: <CreditCard className="w-4.5 h-4.5" />, show: featureToggles.enablePaymentRequests !== false },
-    { id: "withdrawal", label: "Withdrawals", icon: <Landmark className="w-4.5 h-4.5" />, show: featureToggles.enableWithdrawals !== false },
-    { id: "history", label: "History Log", icon: <History className="w-4.5 h-4.5" />, show: true },
-    { id: "leaderboard", label: "Leaderboard", icon: <Trophy className="w-4.5 h-4.5" />, show: featureToggles.enableLeaderboard !== false },
-    { id: "challenge", label: "Challenges", icon: <Award className="w-4.5 h-4.5" />, show: featureToggles.enableChallenges !== false },
-    { id: "kyc", label: "KYC Verification", icon: <Shield className="w-4.5 h-4.5" />, show: featureToggles.enableKYCUpload !== false },
-    { id: "services", label: "Services", icon: <Sparkles className="w-4.5 h-4.5 text-amber-500/80" />, show: featureToggles.enableServices !== false },
-    { id: "profile", label: "My Profile", icon: <User className="w-4.5 h-4.5" />, show: featureToggles.enableSettings !== false },
-    ...customPages.map((page) => ({
-      id: `custom_page_${page.slug}`,
-      label: page.title,
-      icon: <Layers className="w-4.5 h-4.5 text-amber-500/80" />,
-      show: true
-    })),
-    ...(currentUser && (currentUser.role === "admin" || currentUser.role === "founder" || currentUser.role === "co-founder" || currentUser.role === "co_founder")
-      ? [{ id: "admin", label: "Admin Console", icon: <ShieldAlert className="w-4.5 h-4.5 text-red-400" />, show: true }] 
-      : [])
-  ].filter(item => item.show);
-
-  useEffect(() => {
-    if (currentUser && sidebarNavItems.length > 0) {
-      const isCurrentPageVisible = sidebarNavItems.some(item => item.id === activePage || (activePage.startsWith("custom_page_") && item.id === activePage));
-      if (!isCurrentPageVisible) {
-        setActivePage(sidebarNavItems[0].id as any);
-      }
-    }
-  }, [featureToggles, activePage, currentUser]);
 
   return (
     <div className="min-h-screen bg-slate-950 text-zinc-100 flex flex-col font-sans">
