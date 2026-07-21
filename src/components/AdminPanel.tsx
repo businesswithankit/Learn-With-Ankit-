@@ -12,7 +12,7 @@ interface AdminPanelProps {
   adminUser: UserProfile;
 }
 
-type AdminTab = "analytics" | "users" | "payments" | "withdrawals" | "challenges_review" | "services" | "memberships_manage" | "audit_logs" | "notifications" | "settings" | "announcements" | "weeklyReport" | "pages" | "navigation" | "storage" | "email" | "features" | "membership" | "fees" | "withdrawal_settings" | "revenue" | "social_settings";
+type AdminTab = "analytics" | "users" | "payments" | "withdrawals" | "challenges_review" | "services" | "memberships_manage" | "audit_logs" | "notifications" | "settings" | "announcements" | "weeklyReport" | "pages" | "navigation" | "storage" | "email" | "features" | "membership" | "fees" | "withdrawal_settings" | "revenue" | "social_settings" | "badges";
 
 
 export default function AdminPanel({ adminUser }: AdminPanelProps) {
@@ -253,6 +253,9 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
   const [withdrawConfig, setWithdrawConfig] = useState<WithdrawalSettings | null>(null);
   const [revenueData, setRevenueData] = useState<PlatformRevenue | null>(null);
   const [revenueTransactions, setRevenueTransactions] = useState<RevenueTransaction[]>([]);
+  const [founderRevenueWallet, setFounderRevenueWallet] = useState<{ currentBalance: number; totalLifetimeRevenue: number } | null>(null);
+  const [revenueSearch, setRevenueSearch] = useState("");
+  const [revenueFilter, setRevenueFilter] = useState("All");
 
   // --- SERVICES ADMIN STATES ---
   const [adminServices, setAdminServices] = useState<Service[]>([]);
@@ -275,6 +278,25 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
   const [planFeatures, setPlanFeatures] = useState<string>("");
   const [planVipBenefits, setPlanVipBenefits] = useState<string>("");
   const [planBadgeStyle, setPlanBadgeStyle] = useState("");
+
+  // --- BADGE SYSTEM ADMIN STATES ---
+  const [badges, setBadges] = useState<any[]>([]);
+  const [badgeHistory, setBadgeHistory] = useState<any[]>([]);
+  const [badgesSuccess, setBadgesSuccess] = useState(false);
+
+  // Badge Form States
+  const [editingBadge, setEditingBadge] = useState<any | null>(null);
+  const [badgeFormName, setBadgeFormName] = useState("");
+  const [badgeFormIcon, setBadgeFormIcon] = useState("🏅");
+  const [badgeFormColor, setBadgeFormColor] = useState("from-amber-600 via-amber-700 to-amber-800 text-amber-200 border-amber-800/40");
+  const [badgeFormMinEarnings, setBadgeFormMinEarnings] = useState<number | "">("");
+  const [badgeFormDescription, setBadgeFormDescription] = useState("");
+  const [badgeFormDisplayOrder, setBadgeFormDisplayOrder] = useState<number | "">("");
+  const [badgeFormStatus, setBadgeFormStatus] = useState<"Active" | "Inactive">("Active");
+
+  // User details editor badge states
+  const [editBadgeMode, setEditBadgeMode] = useState<"auto" | "manual">("auto");
+  const [editBadge, setEditBadge] = useState<string>("Bronze");
 
   // Fees manager form state
   const [withdrawalFeeType, setWithdrawalFeeType] = useState<"fixed" | "percent" | "percentage" | "hybrid">("fixed");
@@ -523,7 +545,16 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
       setRevenueTransactions(list);
     }, (err) => handleFirestoreError(err, OperationType.LIST, "revenueTransactions"));
 
-    // 15. Listen to Social settings document
+    // 15. Listen to Founder Revenue Wallet
+    const unsubFounderWallet = onSnapshot(doc(db, "settings", "founderRevenueWallet"), (snapshot) => {
+      if (snapshot.exists()) {
+        setFounderRevenueWallet(snapshot.data() as any);
+      } else {
+        setFounderRevenueWallet({ currentBalance: 0, totalLifetimeRevenue: 0 });
+      }
+    });
+
+    // 15b. Listen to Social settings document
     const unsubSocial = onSnapshot(doc(db, "settings", "social"), (snapshot) => {
       if (snapshot.exists()) {
         setSocialSettings(snapshot.data());
@@ -548,6 +579,26 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
       setAdminServicePurchases(list);
     }, (err) => console.error("Admin Service purchases listen error:", err));
 
+    // 18. Listen to Badges collection ordered by displayOrder
+    const qBadges = query(collection(db, "badges"), orderBy("displayOrder", "asc"));
+    const unsubBadges = onSnapshot(qBadges, (snapshot) => {
+      const list: any[] = [];
+      snapshot.forEach((doc) => {
+        list.push({ id: doc.id, ...doc.data() });
+      });
+      setBadges(list);
+    }, (err) => console.error("Admin Badges listen error:", err));
+
+    // 19. Listen to Badge History collection ordered by timestamp desc
+    const qBadgeHistory = query(collection(db, "badgeHistory"), orderBy("timestamp", "desc"));
+    const unsubBadgeHistory = onSnapshot(qBadgeHistory, (snapshot) => {
+      const list: any[] = [];
+      snapshot.forEach((doc) => {
+        list.push({ id: doc.id, ...doc.data() });
+      });
+      setBadgeHistory(list);
+    }, (err) => console.error("Admin Badge History listen error:", err));
+
     return () => {
       unsubUsers();
       unsubPayments();
@@ -563,10 +614,13 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
       unsubWithdrawConfig();
       unsubRevenue();
       unsubRevenueTx();
+      unsubFounderWallet();
       unsubSocial();
       unsubServices();
       unsubServicePurchases();
       unsubPrefs();
+      unsubBadges();
+      unsubBadgeHistory();
     };
   }, []);
 
@@ -586,6 +640,81 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
       });
     } catch (e) {
       console.error("Audit Logging Error:", e);
+    }
+  };
+
+  // --- Badge Administration Handlers ---
+  const handleSaveBadge = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setActionLoading("save_badge");
+    try {
+      const payload = {
+        name: badgeFormName.trim(),
+        icon: badgeFormIcon.trim(),
+        color: badgeFormColor.trim(),
+        minEarnings: Number(badgeFormMinEarnings),
+        description: badgeFormDescription.trim(),
+        displayOrder: Number(badgeFormDisplayOrder),
+        status: badgeFormStatus
+      };
+
+      if (editingBadge) {
+        await updateDoc(doc(db, "badges", editingBadge.id), payload);
+        await writeAuditLog("Edit Badge", editingBadge.name, `Updated badge: ${payload.name} with min earnings: ₹${payload.minEarnings}`);
+      } else {
+        await addDoc(collection(db, "badges"), payload);
+        await writeAuditLog("Create Badge", payload.name, `Created new badge with min earnings: ₹${payload.minEarnings}`);
+      }
+
+      setBadgesSuccess(true);
+      // Reset form
+      setEditingBadge(null);
+      setBadgeFormName("");
+      setBadgeFormIcon("🏅");
+      setBadgeFormColor("from-amber-600 via-amber-700 to-amber-800 text-amber-200 border-amber-800/40");
+      setBadgeFormMinEarnings("");
+      setBadgeFormDescription("");
+      setBadgeFormDisplayOrder("");
+      setBadgeFormStatus("Active");
+
+      setTimeout(() => setBadgesSuccess(false), 3000);
+    } catch (err: any) {
+      console.error("Error saving badge:", err);
+      alert("Failed to save badge: " + err.message);
+    } finally {
+      setActionLoading("");
+    }
+  };
+
+  const handleEditBadgeClick = (badge: any) => {
+    setEditingBadge(badge);
+    setBadgeFormName(badge.name || "");
+    setBadgeFormIcon(badge.icon || "");
+    setBadgeFormColor(badge.color || "");
+    setBadgeFormMinEarnings(badge.minEarnings || 0);
+    setBadgeFormDescription(badge.description || "");
+    setBadgeFormDisplayOrder(badge.displayOrder || 0);
+    setBadgeFormStatus(badge.status || "Active");
+  };
+
+  const handleDeleteBadge = async (badgeId: string, badgeName: string) => {
+    if (!window.confirm(`Are you sure you want to delete badge: ${badgeName}?`)) return;
+    try {
+      await deleteDoc(doc(db, "badges", badgeId));
+      await writeAuditLog("Delete Badge", badgeName, `Deleted badge: ${badgeName}`);
+    } catch (err: any) {
+      console.error("Error deleting badge:", err);
+      alert("Failed to delete badge: " + err.message);
+    }
+  };
+
+  const handleToggleBadgeStatus = async (badge: any) => {
+    const newStatus = badge.status === "Active" ? "Inactive" : "Active";
+    try {
+      await updateDoc(doc(db, "badges", badge.id), { status: newStatus });
+      await writeAuditLog("Toggle Badge Status", badge.name, `Changed status of ${badge.name} to ${newStatus}`);
+    } catch (err: any) {
+      console.error("Error toggling badge status:", err);
     }
   };
 
@@ -672,6 +801,8 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
     setEditCustomUserId(user.customUserId || "");
     setEditCustomRank((user as any).customRank || "");
     setEditCustomBadge((user as any).customBadge || "");
+    setEditBadgeMode((user as any).badgeMode || "auto");
+    setEditBadge(user.badge || "Bronze");
     setEditVipTagText(user.vipTagText || "");
     setEditRole(user.role || "user");
     setEditCoFounderPermissions(user.coFounderPermissions || {
@@ -726,6 +857,9 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
     setActionLoading(`save_${editingUser.userId}`);
     try {
       const userRef = doc(db, "users", editingUser.userId);
+      const previousBadge = editingUser.badge || "Bronze";
+      const previousBadgeMode = (editingUser as any).badgeMode || "auto";
+
       const updatedFields: Partial<UserProfile> = {
         username: editUsername.trim(),
         email: editEmail.trim(),
@@ -739,11 +873,36 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
         customUserId: editCustomUserId.trim(),
         customRank: editCustomRank.trim() || null,
         customBadge: editCustomBadge.trim() || null,
+        badgeMode: editBadgeMode,
+        badge: editBadgeMode === "manual" ? editBadge : (editingUser.badge || "Bronze"),
         vipTagText: editVipTagText.trim() || null,
         role: editRole,
         coFounderPermissions: editRole === "co-founder" ? editCoFounderPermissions : null,
       };
       await updateDoc(userRef, updatedFields);
+
+      // Log manual badge override if changed
+      if (editBadgeMode === "manual" && (previousBadgeMode !== "manual" || previousBadge !== editBadge)) {
+        await addDoc(collection(db, "badgeHistory"), {
+          userId: editingUser.userId,
+          username: editingUser.username || "System User",
+          previousBadge: previousBadge,
+          newBadge: editBadge,
+          mode: "Manual",
+          changedBy: adminUser.username || "Admin",
+          timestamp: serverTimestamp()
+        });
+      } else if (editBadgeMode === "auto" && previousBadgeMode === "manual") {
+        await addDoc(collection(db, "badgeHistory"), {
+          userId: editingUser.userId,
+          username: editingUser.username || "System User",
+          previousBadge: previousBadge,
+          newBadge: previousBadge,
+          mode: "Auto Reset",
+          changedBy: adminUser.username || "Admin",
+          timestamp: serverTimestamp()
+        });
+      }
 
       // Automatic notification for role update
       if (editingUser.role !== editRole) {
@@ -1229,6 +1388,14 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
         const currentBalance = userData.walletBalance || 0;
         let nextBalance = currentBalance;
 
+        // Fetch founder revenue wallet doc in read phase
+        const founderWalletRef = doc(db, "settings", "founderRevenueWallet");
+        const founderWalletSnap = await transaction.get(founderWalletRef);
+        let founderWalletData = { currentBalance: 0, totalLifetimeRevenue: 0 };
+        if (founderWalletSnap.exists()) {
+          founderWalletData = founderWalletSnap.data() as any;
+        }
+
         // Determine balance deduction/refund
         const isOldDeducted = (oldStatus === "Approved" || oldStatus === "Completed");
         const isNewDeducted = (newStatus === "Approved" || newStatus === "Completed");
@@ -1248,6 +1415,64 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
           transaction.update(userRef, {
             walletBalance: nextBalance,
           });
+        }
+
+        // Apply Founder Revenue Wallet credit/reversion
+        const fee = withdrawal.feeDeducted || 0;
+        if (fee > 0) {
+          if (!isOldDeducted && isNewDeducted) {
+            // Credit Founder Wallet
+            transaction.set(founderWalletRef, {
+              currentBalance: (founderWalletData.currentBalance || 0) + fee,
+              totalLifetimeRevenue: (founderWalletData.totalLifetimeRevenue || 0) + fee,
+              updatedAt: serverTimestamp()
+            });
+
+            // Write split transactions
+            const gstAmount = Math.round(fee * 18 / 118 * 100) / 100;
+            const svcAmount = Number((fee - gstAmount).toFixed(2));
+
+            const txRefGst = doc(db, "revenueTransactions", `GST_WITH_${withdrawal.id}`);
+            transaction.set(txRefGst, {
+              userId: withdrawal.userId,
+              username: withdrawal.username || "N/A",
+              amount: gstAmount,
+              revenueType: "GST Revenue",
+              type: "withdrawal_fee_gst",
+              source: `${withdrawal.withdrawalType || "Standard"} Withdrawal`,
+              description: `${withdrawal.withdrawalType || "Standard"} Withdrawal processing GST portion (18% inclusive) for request ${withdrawal.id}`,
+              timestamp: serverTimestamp(),
+              date: new Date().toLocaleDateString("en-IN"),
+              status: "Completed"
+            });
+
+            const txRefSvc = doc(db, "revenueTransactions", `SVC_WITH_${withdrawal.id}`);
+            transaction.set(txRefSvc, {
+              userId: withdrawal.userId,
+              username: withdrawal.username || "N/A",
+              amount: svcAmount,
+              revenueType: "Service Revenue",
+              type: "withdrawal_fee_svc",
+              source: `${withdrawal.withdrawalType || "Standard"} Withdrawal`,
+              description: `${withdrawal.withdrawalType || "Standard"} Withdrawal processing service fee portion for request ${withdrawal.id}`,
+              timestamp: serverTimestamp(),
+              date: new Date().toLocaleDateString("en-IN"),
+              status: "Completed"
+            });
+          } else if (isOldDeducted && !isNewDeducted) {
+            // Revert Founder Wallet
+            transaction.set(founderWalletRef, {
+              currentBalance: Math.max(0, (founderWalletData.currentBalance || 0) - fee),
+              totalLifetimeRevenue: Math.max(0, (founderWalletData.totalLifetimeRevenue || 0) - fee),
+              updatedAt: serverTimestamp()
+            });
+
+            // Remove split transactions
+            const txRefGst = doc(db, "revenueTransactions", `GST_WITH_${withdrawal.id}`);
+            const txRefSvc = doc(db, "revenueTransactions", `SVC_WITH_${withdrawal.id}`);
+            transaction.delete(txRefGst);
+            transaction.delete(txRefSvc);
+          }
         }
 
         transaction.update(ref, {
@@ -2524,6 +2749,7 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
             { id: "features", label: "Feature Toggles", show: hasPermission("manageSettings") },
             { id: "settings", label: "System Settings", show: hasPermission("manageSettings") && featureToggles.enableSettings !== false },
             { id: "social_settings", label: "Social Settings", show: hasPermission("manageSettings") && featureToggles.enableSettings !== false },
+            { id: "badges", label: "🏅 Badges Manager", show: hasPermission("manageSettings") },
             { id: "announcements", label: "Announcements", show: hasPermission("manageAnnouncements") },
             { id: "weeklyReport", label: "Weekly Report", show: (adminUser.role === "founder" || adminUser.role === "admin") && featureToggles.enableReports !== false },
           ].filter(t => t.show).map((tab) => (
@@ -2541,6 +2767,334 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
           ))}
         </div>
       </div>
+
+      {/* RENDER ACTIVE TAB */}
+      {activeTab === "badges" && (
+        <div className="space-y-6">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 font-sans">
+            {/* Badge Creator/Editor Form */}
+            <div className="lg:col-span-1 bg-slate-950/20 border border-zinc-800/80 rounded-2xl p-6 relative overflow-hidden shadow-xl space-y-4">
+              <h3 className="text-sm font-display font-semibold text-zinc-200 uppercase tracking-wider border-b border-zinc-900 pb-3 flex items-center space-x-2">
+                <Award className="w-4 h-4 text-amber-500 animate-pulse" />
+                <span>{editingBadge ? "Edit Badge Configuration" : "Create New Custom Badge"}</span>
+              </h3>
+
+              {badgesSuccess && (
+                <div className="p-3 bg-emerald-500/10 border border-emerald-500/25 text-emerald-400 text-xs rounded-xl flex items-center space-x-2 animate-bounce">
+                  <Check className="w-4 h-4" />
+                  <span>Badge configuration saved successfully!</span>
+                </div>
+              )}
+
+              <form onSubmit={handleSaveBadge} className="space-y-4">
+                <div>
+                  <label className="block text-[10px] text-zinc-400 font-mono uppercase tracking-wider mb-1.5">Badge Name</label>
+                  <input
+                    type="text"
+                    required
+                    value={badgeFormName}
+                    onChange={(e) => setBadgeFormName(e.target.value)}
+                    placeholder="e.g. Platinum, Legend"
+                    className="w-full bg-slate-950 border border-zinc-850 rounded-xl py-2 px-3.5 text-zinc-200 focus:outline-hidden focus:border-amber-500/50 font-sans text-xs"
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-[10px] text-zinc-400 font-mono uppercase tracking-wider mb-1.5">Badge Icon</label>
+                    <select
+                      value={badgeFormIcon}
+                      onChange={(e) => setBadgeFormIcon(e.target.value)}
+                      className="w-full bg-slate-950 border border-zinc-850 rounded-xl py-2 px-3 text-zinc-200 focus:outline-hidden focus:border-amber-500/50 font-sans text-xs"
+                    >
+                      <option value="🥉">🥉 Bronze Medal</option>
+                      <option value="🛡️">🛡️ Silver Shield</option>
+                      <option value="👑">👑 Golden Crown</option>
+                      <option value="💎">💎 Diamond Gem</option>
+                      <option value="🏅">🏅 Gold Medal</option>
+                      <option value="🏆">🏆 Trophy Cup</option>
+                      <option value="⭐">⭐ Star</option>
+                      <option value="🔥">🔥 Fire</option>
+                      <option value="⚡">⚡ Lightning</option>
+                      <option value="🚀">🚀 Rocket</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-[10px] text-zinc-400 font-mono uppercase tracking-wider mb-1.5">Or Custom Icon</label>
+                    <input
+                      type="text"
+                      value={badgeFormIcon}
+                      onChange={(e) => setBadgeFormIcon(e.target.value)}
+                      placeholder="Paste emoji or icon"
+                      className="w-full bg-slate-950 border border-zinc-850 rounded-xl py-2 px-3 text-zinc-200 focus:outline-hidden focus:border-amber-500/50 font-sans text-xs"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-[10px] text-zinc-400 font-mono uppercase tracking-wider mb-1.5">Required Earnings Threshold (₹)</label>
+                  <input
+                    type="number"
+                    required
+                    min="0"
+                    value={badgeFormMinEarnings}
+                    onChange={(e) => setBadgeFormMinEarnings(e.target.value === "" ? "" : Number(e.target.value))}
+                    placeholder="e.g. 10000"
+                    className="w-full bg-slate-950 border border-zinc-850 rounded-xl py-2 px-3.5 text-zinc-200 focus:outline-hidden focus:border-amber-500/50 font-mono text-xs"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[10px] text-zinc-400 font-mono uppercase tracking-wider mb-1.5">Select Color Preset</label>
+                  <div className="grid grid-cols-3 gap-1.5 mb-2">
+                    {[
+                      { name: "Bronze", class: "from-amber-600 via-amber-700 to-amber-800 text-amber-200 border-amber-800/40" },
+                      { name: "Silver", class: "from-slate-300 via-slate-400 to-zinc-500 text-slate-100 border-slate-300/40" },
+                      { name: "Gold", class: "from-amber-300 via-yellow-500 to-yellow-600 text-amber-200 border-yellow-400/40" },
+                      { name: "Diamond", class: "from-cyan-400 via-blue-500 to-indigo-600 text-cyan-200 border-cyan-400/40" },
+                      { name: "Ruby", class: "from-red-500 via-rose-600 to-red-700 text-red-100 border-rose-500/40" },
+                      { name: "Emerald", class: "from-emerald-400 via-teal-500 to-green-600 text-emerald-100 border-emerald-400/40" }
+                    ].map((preset) => (
+                      <button
+                        key={preset.name}
+                        type="button"
+                        onClick={() => setBadgeFormColor(preset.class)}
+                        className={`p-1.5 rounded-lg border text-[9px] font-bold bg-gradient-to-br ${preset.class} truncate`}
+                      >
+                        {preset.name}
+                      </button>
+                    ))}
+                  </div>
+                  <input
+                    type="text"
+                    value={badgeFormColor}
+                    onChange={(e) => setBadgeFormColor(e.target.value)}
+                    placeholder="Custom tailwind classes"
+                    className="w-full bg-slate-950 border border-zinc-850 rounded-xl py-2 px-3.5 text-zinc-400 focus:outline-hidden focus:border-amber-500/50 font-mono text-[10px]"
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-[10px] text-zinc-400 font-mono uppercase tracking-wider mb-1.5">Display Order</label>
+                    <input
+                      type="number"
+                      required
+                      min="1"
+                      value={badgeFormDisplayOrder}
+                      onChange={(e) => setBadgeFormDisplayOrder(e.target.value === "" ? "" : Number(e.target.value))}
+                      placeholder="e.g. 5"
+                      className="w-full bg-slate-950 border border-zinc-850 rounded-xl py-2 px-3.5 text-zinc-200 focus:outline-hidden focus:border-amber-500/50 font-mono text-xs"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] text-zinc-400 font-mono uppercase tracking-wider mb-1.5">Status</label>
+                    <select
+                      value={badgeFormStatus}
+                      onChange={(e) => setBadgeFormStatus(e.target.value as any)}
+                      className="w-full bg-slate-950 border border-zinc-850 rounded-xl py-2 px-3 text-zinc-200 focus:outline-hidden focus:border-amber-500/50 font-sans text-xs"
+                    >
+                      <option value="Active">Active</option>
+                      <option value="Inactive">Inactive</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-[10px] text-zinc-400 font-mono uppercase tracking-wider mb-1.5">Badge Description</label>
+                  <textarea
+                    required
+                    rows={3}
+                    value={badgeFormDescription}
+                    onChange={(e) => setBadgeFormDescription(e.target.value)}
+                    placeholder="Enter short description of milestone benefits or details..."
+                    className="w-full bg-slate-950 border border-zinc-850 rounded-xl py-2 px-3.5 text-zinc-200 focus:outline-hidden focus:border-amber-500/50 font-sans text-xs"
+                  />
+                </div>
+
+                <div className="flex space-x-2 pt-2">
+                  <button
+                    type="submit"
+                    disabled={actionLoading === "save_badge"}
+                    className="flex-1 bg-amber-500 hover:bg-amber-600 disabled:opacity-50 text-slate-950 font-bold py-2.5 px-4 rounded-xl text-xs uppercase tracking-wider transition-all duration-300 cursor-pointer flex items-center justify-center space-x-1.5"
+                  >
+                    {actionLoading === "save_badge" ? (
+                      <>
+                        <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                        <span>Saving...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Save className="w-3.5 h-3.5" />
+                        <span>{editingBadge ? "Update Badge" : "Create Badge"}</span>
+                      </>
+                    )}
+                  </button>
+                  {editingBadge && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEditingBadge(null);
+                        setBadgeFormName("");
+                        setBadgeFormIcon("🏅");
+                        setBadgeFormColor("from-amber-600 via-amber-700 to-amber-800 text-amber-200 border-amber-800/40");
+                        setBadgeFormMinEarnings("");
+                        setBadgeFormDescription("");
+                        setBadgeFormDisplayOrder("");
+                        setBadgeFormStatus("Active");
+                      }}
+                      className="bg-zinc-900 hover:bg-zinc-850 text-zinc-400 font-semibold py-2.5 px-4 rounded-xl text-xs uppercase transition-all duration-300 cursor-pointer"
+                    >
+                      Cancel
+                    </button>
+                  )}
+                </div>
+              </form>
+            </div>
+
+            {/* Badges List & Settings Dashboard */}
+            <div className="lg:col-span-2 space-y-6">
+              <div className="bg-slate-950/20 border border-zinc-800/80 rounded-2xl p-6 shadow-xl space-y-4">
+                <div className="flex items-center justify-between border-b border-zinc-900 pb-3">
+                  <div>
+                    <h3 className="text-sm font-display font-semibold text-zinc-200 uppercase tracking-wider">
+                      Configured Milestone Badges
+                    </h3>
+                    <p className="text-[10px] text-zinc-500">Edit required achievement thresholds, descriptions, active status, and order of priority.</p>
+                  </div>
+                  <div className="px-2.5 py-1 bg-amber-500/10 text-amber-400 border border-amber-500/25 rounded-lg text-[10px] font-mono uppercase tracking-wider">
+                    {badges.length} Saved Badges
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  {badges.map((badgeItem) => (
+                    <div
+                      key={badgeItem.id}
+                      className={`p-4 rounded-2xl border flex flex-col justify-between space-y-4 transition-all duration-300 ${
+                        badgeItem.status === "Inactive"
+                          ? "bg-zinc-950/20 border-zinc-900/40 opacity-60"
+                          : "bg-zinc-950/40 border-zinc-900 hover:border-zinc-800"
+                      }`}
+                    >
+                      <div className="space-y-3">
+                        <div className="flex items-center justify-between">
+                          <div className={`px-2.5 py-1 bg-gradient-to-br ${badgeItem.color} rounded-lg flex items-center space-x-1.5 border`}>
+                            <span className="text-sm">{badgeItem.icon}</span>
+                            <span className="text-xs font-bold font-display uppercase tracking-wider whitespace-nowrap">{badgeItem.name}</span>
+                          </div>
+                          <span className="text-[10px] text-zinc-500 font-mono">Order: #{badgeItem.displayOrder}</span>
+                        </div>
+
+                        <div className="space-y-1">
+                          <div className="flex justify-between items-baseline text-xs font-mono">
+                            <span className="text-zinc-500">Threshold Amount</span>
+                            <span className="text-amber-400 font-bold">₹{(badgeItem.minEarnings || 0).toLocaleString("en-IN")}</span>
+                          </div>
+                          <p className="text-[11px] text-zinc-400 font-sans leading-relaxed pt-1.5 border-t border-zinc-900">{badgeItem.description}</p>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center justify-between pt-3 border-t border-zinc-900">
+                        <button
+                          type="button"
+                          onClick={() => handleToggleBadgeStatus(badgeItem)}
+                          className={`text-[10px] px-2 py-1 rounded-md font-mono uppercase font-bold transition-all ${
+                            badgeItem.status === "Active"
+                              ? "bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400"
+                              : "bg-red-500/10 hover:bg-red-500/20 text-red-400"
+                          }`}
+                        >
+                          {badgeItem.status === "Active" ? "● Active" : "○ Disabled"}
+                        </button>
+
+                        <div className="flex items-center space-x-1.5">
+                          <button
+                            type="button"
+                            onClick={() => handleEditBadgeClick(badgeItem)}
+                            className="p-1.5 bg-zinc-900 hover:bg-zinc-850 text-zinc-400 hover:text-amber-400 rounded-lg transition-all"
+                            title="Edit Configuration"
+                          >
+                            <Edit className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteBadge(badgeItem.id, badgeItem.name)}
+                            className="p-1.5 bg-zinc-900 hover:bg-zinc-850 text-zinc-500 hover:text-red-400 rounded-lg transition-all"
+                            title="Delete Badge"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Badge Assignment Audit History */}
+              <div className="bg-slate-950/20 border border-zinc-800/80 rounded-2xl p-6 shadow-xl space-y-4">
+                <div>
+                  <h3 className="text-sm font-display font-semibold text-zinc-200 uppercase tracking-wider mb-1">
+                    Badge Assignment History
+                  </h3>
+                  <p className="text-[10px] text-zinc-500">Chronological history log of all badge upgrades, downgrades, and automatic calculations.</p>
+                </div>
+
+                <div className="border border-zinc-900 rounded-xl overflow-hidden">
+                  <table className="w-full text-left border-collapse font-sans">
+                    <thead>
+                      <tr className="bg-slate-950 text-[9px] uppercase tracking-wider text-zinc-500 font-mono border-b border-zinc-900">
+                        <th className="py-2.5 px-3">Date & Time</th>
+                        <th className="py-2.5 px-3">Affiliate User</th>
+                        <th className="py-2.5 px-3">Previous Badge</th>
+                        <th className="py-2.5 px-3">New Badge</th>
+                        <th className="py-2.5 px-3">Change Type</th>
+                        <th className="py-2.5 px-3">Done By</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-zinc-900 text-[11px] text-zinc-400">
+                      {badgeHistory.length === 0 ? (
+                        <tr>
+                          <td colSpan={6} className="py-8 text-center text-zinc-500 font-mono">No badge adjustments logged yet.</td>
+                        </tr>
+                      ) : (
+                        badgeHistory.slice(0, 15).map((log) => {
+                          const dateObj = log.timestamp?.seconds ? new Date(log.timestamp.seconds * 1000) : new Date();
+                          return (
+                            <tr key={log.id} className="hover:bg-zinc-950/25">
+                              <td className="py-2 px-3 text-[10px] font-mono text-zinc-500">
+                                {dateObj.toLocaleDateString("en-IN")} {dateObj.toLocaleTimeString("en-IN", { hour: '2-digit', minute: '2-digit' })}
+                              </td>
+                              <td className="py-2 px-3 font-medium text-zinc-300">{log.username || "System User"}</td>
+                              <td className="py-2 px-3">
+                                <span className="px-1.5 py-0.5 rounded-sm bg-zinc-950 text-zinc-500 border border-zinc-900/60 font-semibold">{log.previousBadge || "Bronze"}</span>
+                              </td>
+                              <td className="py-2 px-3">
+                                <span className="px-1.5 py-0.5 rounded-sm bg-zinc-900 text-amber-400 border border-amber-500/10 font-bold">{log.newBadge || "Bronze"}</span>
+                              </td>
+                              <td className="py-2 px-3">
+                                <span className={`px-1.5 py-0.25 text-[9px] font-mono rounded-md font-bold ${
+                                  log.mode === "Manual"
+                                    ? "bg-red-500/10 text-red-400 border border-red-500/20"
+                                    : "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
+                                }`}>
+                                  {log.mode || "Auto"}
+                                </span>
+                              </td>
+                              <td className="py-2 px-3 text-[10px] font-mono text-zinc-400">{log.changedBy || "System (Auto)"}</td>
+                            </tr>
+                          );
+                        })
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* RENDER ACTIVE TAB */}
       {activeTab === "analytics" && (
@@ -4233,8 +4787,183 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
         const netProfitLoss = totalPlatformRevenue - totalAdCost - totalUserPayout;
 
         // Find founder wallet balance from users list
-        const founderUser = users.find(u => u.role === "founder") || adminUser;
-        const founderWalletBalance = founderUser?.walletBalance || 0;
+        const founderUser = (users as any[]).find(u => u.role === "founder") || adminUser;
+        const founderWalletBalance = (founderUser as any)?.walletBalance || 0;
+
+        const now = new Date();
+        const todayStartMsMetrics = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+        const sevenDaysAgoMs = now.getTime() - 7 * 24 * 60 * 60 * 1000;
+        const thirtyDaysAgoMs = now.getTime() - 30 * 24 * 60 * 60 * 1000;
+
+        const getCategoryMetrics = (category: "Membership Revenue" | "Service Revenue" | "GST Revenue") => {
+          let today = 0;
+          let sevenDays = 0;
+          let thirtyDays = 0;
+          let lifetime = 0;
+
+          (revenueTransactions as any[]).forEach((tx: any) => {
+            let isMatch = false;
+            if (category === "Membership Revenue") {
+              isMatch = tx.revenueType === "Membership Revenue" || tx.type === "premium_purchase" || tx.type === "membership_purchase" || tx.type === "membership_purchase_base" || (tx.type && tx.type.includes("membership_purchase"));
+            } else if (category === "Service Revenue") {
+              isMatch = tx.revenueType === "Service Revenue" || tx.type === "service_purchase" || tx.type === "withdrawal_fee" || tx.type === "fast_withdrawal_fee" || tx.type === "withdrawal_fee_svc" || tx.type === "service_purchase_base" || (tx.type && tx.type.includes("service_purchase"));
+            } else if (category === "GST Revenue") {
+              isMatch = tx.revenueType === "GST Revenue" || tx.type === "withdrawal_fee_gst" || tx.type === "service_purchase_gst" || tx.type === "membership_purchase_gst" || (tx.type && tx.type.includes("_gst"));
+            }
+
+            if (isMatch) {
+              const amount = Number(tx.amount) || 0;
+              const txDate = getTxDate(tx.timestamp, tx.manualDate);
+              const txMs = txDate.getTime();
+
+              lifetime += amount;
+              if (txMs >= todayStartMsMetrics) today += amount;
+              if (txMs >= sevenDaysAgoMs) sevenDays += amount;
+              if (txMs >= thirtyDaysAgoMs) thirtyDays += amount;
+            }
+          });
+
+          return { today, sevenDays, thirtyDays, lifetime };
+        };
+
+        const membershipMetrics = getCategoryMetrics("Membership Revenue");
+        const serviceMetrics = getCategoryMetrics("Service Revenue");
+        const gstMetrics = getCategoryMetrics("GST Revenue");
+
+        const totalPlatformRevenueSum = membershipMetrics.lifetime + serviceMetrics.lifetime + gstMetrics.lifetime;
+
+        const filteredTransactions = (revenueTransactions as any[]).filter((tx: any) => {
+          // Filter by category
+          if (revenueFilter !== "All") {
+            const mappedType = tx.revenueType || "";
+            const tType = tx.type || "";
+            if (revenueFilter === "Membership Revenue") {
+              if (mappedType !== "Membership Revenue" && (!tType || !tType.includes("membership_purchase")) && tType !== "premium_purchase" && tType !== "membership_purchase") return false;
+            }
+            if (revenueFilter === "Service Revenue") {
+              if (mappedType !== "Service Revenue" && (!tType || !tType.includes("service_purchase")) && tType !== "service_purchase" && tType !== "withdrawal_fee" && tType !== "fast_withdrawal_fee") return false;
+            }
+            if (revenueFilter === "GST Revenue") {
+              if (mappedType !== "GST Revenue" && (!tType || !tType.includes("_gst")) && tType !== "withdrawal_fee_gst") return false;
+            }
+            if (revenueFilter === "Expenses") {
+              if (mappedType !== "Expense" && tType !== "ad_cost") return false;
+            }
+          }
+
+          // Search query
+          if (revenueSearch.trim() !== "") {
+            const q = revenueSearch.toLowerCase();
+            const txId = (tx.id || "").toLowerCase();
+            const username = (tx.username || "").toLowerCase();
+            const userId = (tx.userId || "").toLowerCase();
+            const source = (tx.source || "").toLowerCase();
+            const title = (tx.title || "").toLowerCase();
+            const desc = (tx.description || "").toLowerCase();
+
+            if (!txId.includes(q) && !username.includes(q) && !userId.includes(q) && !source.includes(q) && !title.includes(q) && !desc.includes(q)) {
+              return false;
+            }
+          }
+
+          return true;
+        });
+
+        const handleDeleteRevenueTransaction = async (txId: string) => {
+          if (!window.confirm("Are you sure you want to permanently delete this revenue transaction?")) return;
+          try {
+            await deleteDoc(doc(db, "revenueTransactions", txId));
+            alert("Transaction successfully deleted from records!");
+          } catch (err: any) {
+            console.error("Failed to delete transaction: ", err);
+            alert("Error deleting transaction: " + err.message);
+          }
+        };
+
+        const handleExportPDF = () => {
+          try {
+            const docPdf = new jsPDF();
+            
+            // Branding Banner
+            docPdf.setFillColor(15, 23, 42); // slate-900
+            docPdf.rect(0, 0, 210, 38, "F");
+            
+            docPdf.setTextColor(255, 255, 255);
+            docPdf.setFont("Helvetica", "bold");
+            docPdf.setFontSize(22);
+            docPdf.text("LEARN WITH ANKIT", 14, 15);
+            
+            docPdf.setFontSize(9);
+            docPdf.setFont("Helvetica", "normal");
+            docPdf.text("OFFICIAL PLATFORM REVENUE LEDGER & AUDIT COMPLIANCE STATEMENT", 14, 22);
+            docPdf.text(`Generated on: ${new Date().toLocaleDateString("en-IN")} at ${new Date().toLocaleTimeString("en-IN")} by Admin`, 14, 28);
+            
+            // Section Header
+            docPdf.setTextColor(30, 30, 30);
+            docPdf.setFont("Helvetica", "bold");
+            docPdf.setFontSize(11);
+            docPdf.text("PLATFORM REVENUE SUMMARIES", 14, 48);
+            
+            docPdf.setFont("Helvetica", "normal");
+            docPdf.setFontSize(9);
+            docPdf.text(`Founder Wallet Balance: INR ${(founderRevenueWallet?.currentBalance ?? 0).toLocaleString("en-IN")}.00`, 14, 55);
+            docPdf.text(`Lifetime Platform Revenue: INR ${(founderRevenueWallet?.totalLifetimeRevenue ?? 0).toLocaleString("en-IN")}.00`, 14, 61);
+            docPdf.text(`Total Filtered Ledger Value: INR ${(filteredTransactions as any[]).reduce((acc, tx: any) => acc + (tx.amount || 0), 0).toLocaleString("en-IN")}.00`, 14, 67);
+            
+            // Table Headers
+            let y = 78;
+            docPdf.setFont("Helvetica", "bold");
+            docPdf.setFontSize(9);
+            docPdf.setFillColor(241, 245, 249); // slate-100
+            docPdf.rect(14, y - 5, 182, 7, "F");
+            
+            docPdf.text("TX ID", 15, y);
+            docPdf.text("Revenue Type", 45, y);
+            docPdf.text("Source/User", 95, y);
+            docPdf.text("Amount (INR)", 145, y);
+            docPdf.text("Date", 178, y);
+            
+            docPdf.setFont("Helvetica", "normal");
+            docPdf.setFontSize(8);
+            
+            (filteredTransactions as any[]).forEach((tx: any) => {
+              y += 7;
+              if (y > 275) {
+                docPdf.addPage();
+                y = 20;
+                // Redraw table headers on new page
+                docPdf.setFillColor(241, 245, 249);
+                docPdf.rect(14, y - 5, 182, 7, "F");
+                docPdf.setFont("Helvetica", "bold");
+                docPdf.text("TX ID", 15, y);
+                docPdf.text("Revenue Type", 45, y);
+                docPdf.text("Source/User", 95, y);
+                docPdf.text("Amount (INR)", 145, y);
+                docPdf.text("Date", 178, y);
+                docPdf.setFont("Helvetica", "normal");
+                y += 7;
+              }
+              
+              const txId = tx.id ? tx.id.substring(0, 10).toUpperCase() : "MANUAL";
+              const rType = tx.revenueType || tx.type || "Revenue";
+              const srcUser = tx.username ? `${tx.username} (${tx.source || "System"})` : (tx.source || "Manual Entry");
+              const amtStr = `INR ${Number(tx.amount || 0).toLocaleString("en-IN")}`;
+              const dateStr = tx.manualDate || (tx.timestamp?.seconds ? new Date(tx.timestamp.seconds * 1000).toLocaleDateString("en-IN") : "Just now");
+              
+              docPdf.text(txId, 15, y);
+              docPdf.text(rType, 45, y);
+              docPdf.text(srcUser, 95, y);
+              docPdf.text(amtStr, 145, y);
+              docPdf.text(dateStr, 178, y);
+            });
+            
+            docPdf.save(`LWA_Platform_Ledger_${new Date().toISOString().split("T")[0]}.pdf`);
+            alert("Ledger exported as high-quality PDF successfully!");
+          } catch (err: any) {
+            console.error("Export PDF error: ", err);
+            alert("Failed to export ledger to PDF: " + err.message);
+          }
+        };
 
         // Form Submission for Recording Manual Entry
         const handleRecordManualEntry = async (e: React.FormEvent) => {
@@ -4258,31 +4987,94 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
 
           setActionLoading("record_manual_income");
           try {
-            // Write a revenueTransaction document
-            await addDoc(collection(db, "revenueTransactions"), {
-              userId: adminUser.userId,
-              username: adminUser.username,
-              title: titleVal,
-              amount: amountVal,
-              type: categoryVal,
-              description: descVal || `Manual entry for ${titleVal}`,
-              manualDate: dateVal,
-              timestamp: serverTimestamp(),
-            });
+            const founderWalletRef = doc(db, "settings", "founderRevenueWallet");
 
-            // If a founder exists, increment or decrement their wallet balance depending on category
-            if (founderUser && founderUser.userId) {
-              const founderUserRef = doc(db, "users", founderUser.userId);
-              const latestFounderSnap = await getDoc(founderUserRef);
-              const currentFounderBal = latestFounderSnap.exists() ? (latestFounderSnap.data()?.walletBalance || 0) : 0;
-              
-              // Ad Cost is an expense, so we decrement founder's balance. Others increment it.
-              const delta = categoryVal === "ad_cost" ? -amountVal : amountVal;
+            await runTransaction(db, async (transaction) => {
+              // 1. Reads
+              const founderWalletSnap = await transaction.get(founderWalletRef);
+              let walletData = { currentBalance: 0, totalLifetimeRevenue: 0 };
+              if (founderWalletSnap.exists()) {
+                walletData = founderWalletSnap.data() as any;
+              }
 
-              await updateDoc(founderUserRef, {
-                walletBalance: currentFounderBal + delta
+              let currentFounderBal = 0;
+              let founderUserRef = null;
+              if (founderUser && (founderUser as any).userId) {
+                founderUserRef = doc(db, "users", (founderUser as any).userId);
+                const latestFounderSnap = await transaction.get(founderUserRef);
+                if (latestFounderSnap.exists()) {
+                  currentFounderBal = (latestFounderSnap.data() as any)?.walletBalance || 0;
+                }
+              }
+
+              // 2. Calculations & Updates
+              const isAdCost = categoryVal === "ad_cost";
+              const delta = isAdCost ? -amountVal : amountVal;
+
+              // Update dedicated Founder Revenue Wallet
+              transaction.set(founderWalletRef, {
+                currentBalance: Math.max(0, (walletData.currentBalance || 0) + delta),
+                totalLifetimeRevenue: Math.max(0, (walletData.totalLifetimeRevenue || 0) + (isAdCost ? 0 : amountVal)),
+                updatedAt: serverTimestamp()
               });
-            }
+
+              // Update Founder User Account balance if ref exists
+              if (founderUserRef) {
+                transaction.update(founderUserRef, {
+                  walletBalance: Math.max(0, currentFounderBal + delta)
+                });
+              }
+
+              // Write transaction documents
+              if (isAdCost) {
+                const txRef = doc(collection(db, "revenueTransactions"));
+                transaction.set(txRef, {
+                  userId: adminUser.userId,
+                  username: adminUser.username,
+                  title: titleVal,
+                  amount: amountVal,
+                  type: "ad_cost",
+                  revenueType: "Expense",
+                  description: descVal || `Manual Expense: ${titleVal}`,
+                  manualDate: dateVal,
+                  timestamp: serverTimestamp(),
+                  status: "Completed"
+                });
+              } else {
+                // Split revenue into GST and Base Category
+                const gstAmount = Math.round(amountVal * 18 / 118 * 100) / 100;
+                const baseAmount = Number((amountVal - gstAmount).toFixed(2));
+                const mappedBaseType = categoryVal === "membership_purchase" ? "Membership Revenue" : "Service Revenue";
+
+                const txRefGst = doc(collection(db, "revenueTransactions"));
+                transaction.set(txRefGst, {
+                  userId: adminUser.userId,
+                  username: adminUser.username,
+                  title: `${titleVal} (GST)`,
+                  amount: gstAmount,
+                  type: `${categoryVal}_gst`,
+                  revenueType: "GST Revenue",
+                  description: `GST portion (18% inclusive) of manual entry: ${titleVal}. ${descVal}`,
+                  manualDate: dateVal,
+                  timestamp: serverTimestamp(),
+                  status: "Completed"
+                });
+
+                const txRefBase = doc(collection(db, "revenueTransactions"));
+                transaction.set(txRefBase, {
+                  userId: adminUser.userId,
+                  username: adminUser.username,
+                  title: titleVal,
+                  amount: baseAmount,
+                  type: `${categoryVal}_base`,
+                  revenueType: mappedBaseType,
+                  description: descVal || `Manual Entry: ${titleVal}`,
+                  manualDate: dateVal,
+                  timestamp: serverTimestamp(),
+                  status: "Completed"
+                });
+              }
+            });
 
             // Also write audit log
             await writeAuditLog(
@@ -4303,301 +5095,406 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
 
         return (
           <div className="space-y-6 animate-fade-in font-sans">
-            {/* Header section with Founder Stats */}
-            <div className="p-5 rounded-2xl bg-zinc-900/30 border border-zinc-800 flex flex-col md:flex-row md:items-center justify-between gap-4">
+            {/* 🔝 MAIN REVENUE DASHBOARD HEADER & HERO */}
+            <div className="p-6 rounded-2xl bg-zinc-900/40 border border-zinc-800 flex flex-col md:flex-row md:items-center justify-between gap-6">
               <div>
-                <h2 className="text-base font-display font-bold text-zinc-100 uppercase tracking-widest flex items-center space-x-2">
-                  <Coins className="w-5 h-5 text-amber-500" />
-                  <span>Platform Revenue Dashboard</span>
+                <h2 className="text-lg font-display font-bold text-zinc-100 uppercase tracking-widest flex items-center space-x-3">
+                  <Coins className="w-6 h-6 text-amber-500 animate-pulse" />
+                  <span>Platform Revenue & Financial Systems</span>
                 </h2>
-                <p className="text-xs text-zinc-400 mt-1">Track gross income channels, manage platform reserves, monitor liabilities, and verify Net Profit/Loss.</p>
+                <p className="text-xs text-zinc-400 mt-1">Real-time ledger audit, split tax tracking, automated founder revenue wallets, and compliance export logs.</p>
               </div>
-              
+              <div className="flex items-center space-x-3">
+                <button
+                  onClick={handleExportPDF}
+                  className="px-4 py-2 bg-zinc-850 hover:bg-zinc-800 border border-zinc-700 text-zinc-200 text-xs font-semibold rounded-xl flex items-center space-x-2 transition-all cursor-pointer"
+                >
+                  <Download className="w-3.5 h-3.5 text-zinc-400" />
+                  <span>Export Financial Ledger</span>
+                </button>
+              </div>
+            </div>
+
+            {/* 📊 SUMMARY CARDS (BENTO STYLE) */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-4">
               {/* Founder Wallet Balance Card */}
-              <div className="p-4 bg-gradient-to-br from-amber-500/10 to-yellow-500/5 border border-amber-500/25 rounded-xl flex items-center space-x-4">
-                <div className="w-10 h-10 rounded-full bg-amber-500/10 flex items-center justify-center text-amber-500">
-                  <Wallet className="w-5 h-5" />
+              <div className="p-4 rounded-xl bg-gradient-to-br from-amber-500/10 via-zinc-900/30 to-zinc-900/40 border border-amber-500/30 space-y-2 relative overflow-hidden group">
+                <div className="absolute top-0 right-0 w-24 h-24 bg-amber-500/5 rounded-full blur-2xl group-hover:bg-amber-500/10 transition-all duration-500"></div>
+                <div className="flex items-center space-x-2 text-amber-400">
+                  <Wallet className="w-4 h-4" />
+                  <span className="text-[10px] font-bold uppercase tracking-wider">Founder Balance</span>
                 </div>
-                <div>
-                  <span className="text-[10px] uppercase tracking-wider text-zinc-400 block font-mono">Founder Wallet Balance</span>
-                  <span className="text-xl font-mono font-bold text-amber-400">
-                    ₹{founderWalletBalance.toLocaleString("en-IN")}.00
-                  </span>
+                <div className="space-y-0.5">
+                  <p className="text-xl font-mono font-bold text-amber-300">
+                    ₹{(founderRevenueWallet?.currentBalance ?? 0).toLocaleString("en-IN")}
+                  </p>
+                  <p className="text-[9px] text-zinc-400">Available Wallet Reserve</p>
+                </div>
+              </div>
+
+              {/* Lifetime Founder Revenue Card */}
+              <div className="p-4 rounded-xl bg-gradient-to-br from-teal-500/10 via-zinc-900/30 to-zinc-900/40 border border-teal-500/30 space-y-2 relative overflow-hidden group">
+                <div className="absolute top-0 right-0 w-24 h-24 bg-teal-500/5 rounded-full blur-2xl group-hover:bg-teal-500/10 transition-all duration-500"></div>
+                <div className="flex items-center space-x-2 text-teal-400">
+                  <TrendingUp className="w-4 h-4" />
+                  <span className="text-[10px] font-bold uppercase tracking-wider">Founder Lifetime</span>
+                </div>
+                <div className="space-y-0.5">
+                  <p className="text-xl font-mono font-bold text-teal-300">
+                    ₹{(founderRevenueWallet?.totalLifetimeRevenue ?? 0).toLocaleString("en-IN")}
+                  </p>
+                  <p className="text-[9px] text-zinc-400">Total Founder Intake</p>
+                </div>
+              </div>
+
+              {/* Membership Revenue Card */}
+              <div className="p-4 rounded-xl bg-zinc-900/30 border border-zinc-800 space-y-2 relative overflow-hidden">
+                <div className="flex items-center space-x-2 text-purple-400">
+                  <CreditCard className="w-4 h-4" />
+                  <span className="text-[10px] font-bold uppercase tracking-wider">Membership Revenue</span>
+                </div>
+                <div className="space-y-0.5">
+                  <p className="text-lg font-mono font-bold text-purple-300">
+                    ₹{membershipMetrics.lifetime.toLocaleString("en-IN")}
+                  </p>
+                  <p className="text-[9px] text-zinc-500">Subscription gross</p>
+                </div>
+              </div>
+
+              {/* Service Revenue Card */}
+              <div className="p-4 rounded-xl bg-zinc-900/30 border border-zinc-800 space-y-2 relative overflow-hidden">
+                <div className="flex items-center space-x-2 text-blue-400">
+                  <Sparkles className="w-4 h-4" />
+                  <span className="text-[10px] font-bold uppercase tracking-wider">Service Revenue</span>
+                </div>
+                <div className="space-y-0.5">
+                  <p className="text-lg font-mono font-bold text-blue-300">
+                    ₹{serviceMetrics.lifetime.toLocaleString("en-IN")}
+                  </p>
+                  <p className="text-[9px] text-zinc-500">Services & Withdraw Fees</p>
+                </div>
+              </div>
+
+              {/* GST Revenue Card */}
+              <div className="p-4 rounded-xl bg-zinc-900/30 border border-zinc-800 space-y-2 relative overflow-hidden">
+                <div className="flex items-center space-x-2 text-emerald-400">
+                  <Landmark className="w-4 h-4" />
+                  <span className="text-[10px] font-bold uppercase tracking-wider">GST / Tax Revenue</span>
+                </div>
+                <div className="space-y-0.5">
+                  <p className="text-lg font-mono font-bold text-emerald-300">
+                    ₹{gstMetrics.lifetime.toLocaleString("en-IN")}
+                  </p>
+                  <p className="text-[9px] text-zinc-500">18% split tax receipts</p>
+                </div>
+              </div>
+
+              {/* Total Gross Platform Revenue Card */}
+              <div className="p-4 rounded-xl bg-gradient-to-br from-indigo-500/10 via-zinc-900/30 to-zinc-900/40 border border-indigo-500/30 space-y-2 relative overflow-hidden group">
+                <div className="absolute top-0 right-0 w-24 h-24 bg-indigo-500/5 rounded-full blur-2xl group-hover:bg-indigo-500/10 transition-all duration-500"></div>
+                <div className="flex items-center space-x-2 text-indigo-400">
+                  <Coins className="w-4 h-4" />
+                  <span className="text-[10px] font-bold uppercase tracking-wider">Gross Platform</span>
+                </div>
+                <div className="space-y-0.5">
+                  <p className="text-xl font-mono font-bold text-indigo-300">
+                    ₹{totalPlatformRevenueSum.toLocaleString("en-IN")}
+                  </p>
+                  <p className="text-[9px] text-zinc-400">Aggregated global intake</p>
                 </div>
               </div>
             </div>
 
-            {/* Time-Based Period Performance & Net profit */}
-            <div className="space-y-3">
-              <h3 className="text-[10px] uppercase font-mono tracking-widest text-zinc-500">🕒 Time-Based Revenue & Profit Summary</h3>
-              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-                {/* Net Profit / Loss */}
-                <div className="bg-zinc-950/40 p-4 border border-zinc-850 rounded-xl space-y-1 relative overflow-hidden group col-span-2 lg:col-span-2">
-                  <div className="absolute top-0 right-0 p-3 opacity-10">
-                    <TrendingUp className="w-16 h-16 text-emerald-400" />
+            {/* 📈 THREE REVENUE ANALYTICS CATEGORIES */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              {/* Category 1: Membership Revenue */}
+              <div className="bg-zinc-900/15 border border-zinc-850 rounded-2xl p-5 shadow-xl space-y-4">
+                <div className="flex items-center space-x-2 border-b border-zinc-800/60 pb-3">
+                  <div className="p-1.5 rounded-lg bg-purple-500/10 text-purple-400">
+                    <CreditCard className="w-4 h-4" />
                   </div>
-                  <span className="text-[9px] uppercase tracking-widest font-mono text-zinc-400 block">Net Profit / Loss</span>
-                  <p className="text-2xl font-mono font-black block">
-                    <AnimatedCounter value={netProfitLoss} />
-                  </p>
-                  <p className="text-[10px] text-zinc-500">
-                    Calculated as Platform Revenue - Ad Cost - User Payouts
-                  </p>
+                  <div>
+                    <h4 className="text-xs font-bold text-zinc-200 uppercase tracking-widest">Membership Revenue</h4>
+                    <p className="text-[10px] text-zinc-500">Plan upgrades and premium packs</p>
+                  </div>
                 </div>
-
-                {/* Today's Revenue */}
-                <div className="bg-zinc-950/40 p-4 border border-zinc-800/80 rounded-xl space-y-1">
-                  <span className="text-[9px] uppercase tracking-widest font-mono text-zinc-500 block">Today's Revenue</span>
-                  <p className="text-lg font-mono font-bold text-emerald-400">
-                    <AnimatedCounter value={todayRevenue} />
-                  </p>
-                  <p className="text-[9px] text-zinc-500">Gross inflows today</p>
-                </div>
-
-                {/* Weekly Revenue */}
-                <div className="bg-zinc-950/40 p-4 border border-zinc-800/80 rounded-xl space-y-1">
-                  <span className="text-[9px] uppercase tracking-widest font-mono text-zinc-500 block">Weekly Revenue</span>
-                  <p className="text-lg font-mono font-bold text-emerald-400">
-                    <AnimatedCounter value={sevenDaysRevenue} />
-                  </p>
-                  <p className="text-[9px] text-zinc-500">Last 7 days inflows</p>
-                </div>
-
-                {/* Monthly Revenue */}
-                <div className="bg-zinc-950/40 p-4 border border-zinc-800/80 rounded-xl space-y-1">
-                  <span className="text-[9px] uppercase tracking-widest font-mono text-zinc-500 block">Monthly Revenue</span>
-                  <p className="text-lg font-mono font-bold text-emerald-400">
-                    <AnimatedCounter value={thirtyDaysRevenue} />
-                  </p>
-                  <p className="text-[9px] text-zinc-500">Last 30 days inflows</p>
-                </div>
-
-                {/* Grand Total Revenue */}
-                <div className="bg-zinc-950/40 p-4 border border-zinc-800/80 rounded-xl space-y-1">
-                  <span className="text-[9px] uppercase tracking-widest font-mono text-zinc-500 block">Grand Total Revenue</span>
-                  <p className="text-lg font-mono font-bold text-amber-400">
-                    <AnimatedCounter value={totalPlatformRevenue} />
-                  </p>
-                  <p className="text-[9px] text-zinc-500">All-time gross receipts</p>
-                </div>
-              </div>
-            </div>
-
-            {/* Individual Income Stream Categories & Outflows */}
-            <div className="space-y-3">
-              <h3 className="text-[10px] uppercase font-mono tracking-widest text-zinc-500">📊 Revenue & Outflow Breakdowns</h3>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
                 
-                {/* Membership Income */}
-                <div className="p-4 bg-zinc-950/40 border border-zinc-900 rounded-xl space-y-1.5">
-                  <div className="flex items-center space-x-1.5 text-zinc-400">
-                    <Award className="w-4 h-4 text-amber-500" />
-                    <span className="text-[9px] font-bold uppercase tracking-wider">Membership Rev</span>
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between text-xs font-mono">
+                    <span className="text-zinc-500">TODAY:</span>
+                    <span className="text-purple-400 font-bold">₹{membershipMetrics.today.toLocaleString("en-IN")}</span>
                   </div>
-                  <p className="text-lg font-mono font-bold text-zinc-100">
-                    <AnimatedCounter value={membershipRevenue} />
-                  </p>
-                  <p className="text-[9px] text-zinc-500 font-sans leading-tight">Plan upgrades & subscription sales</p>
+                  <div className="flex items-center justify-between text-xs font-mono">
+                    <span className="text-zinc-500">LAST 7 DAYS:</span>
+                    <span className="text-zinc-300">₹{membershipMetrics.sevenDays.toLocaleString("en-IN")}</span>
+                  </div>
+                  <div className="flex items-center justify-between text-xs font-mono">
+                    <span className="text-zinc-500">LAST 30 DAYS:</span>
+                    <span className="text-zinc-300">₹{membershipMetrics.thirtyDays.toLocaleString("en-IN")}</span>
+                  </div>
+                  <div className="flex items-center justify-between text-xs font-mono border-t border-zinc-800/40 pt-2">
+                    <span className="text-zinc-400 font-sans font-semibold">LIFETIME REVENUE:</span>
+                    <span className="text-purple-300 font-bold">₹{membershipMetrics.lifetime.toLocaleString("en-IN")}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Category 2: Service Revenue */}
+              <div className="bg-zinc-900/15 border border-zinc-850 rounded-2xl p-5 shadow-xl space-y-4">
+                <div className="flex items-center space-x-2 border-b border-zinc-800/60 pb-3">
+                  <div className="p-1.5 rounded-lg bg-blue-500/10 text-blue-400">
+                    <Sparkles className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h4 className="text-xs font-bold text-zinc-200 uppercase tracking-widest">Service Revenue</h4>
+                    <p className="text-[10px] text-zinc-500">Marketplace gigs & withdrawal charges</p>
+                  </div>
                 </div>
 
-                {/* Service Income */}
-                <div className="p-4 bg-zinc-950/40 border border-zinc-900 rounded-xl space-y-1.5">
-                  <div className="flex items-center space-x-1.5 text-zinc-400">
-                    <Sparkles className="w-4 h-4 text-blue-500" />
-                    <span className="text-[9px] font-bold uppercase tracking-wider">Service Rev</span>
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between text-xs font-mono">
+                    <span className="text-zinc-500">TODAY:</span>
+                    <span className="text-blue-400 font-bold">₹{serviceMetrics.today.toLocaleString("en-IN")}</span>
                   </div>
-                  <p className="text-lg font-mono font-bold text-zinc-100">
-                    <AnimatedCounter value={serviceRevenue} />
-                  </p>
-                  <p className="text-[9px] text-zinc-500 font-sans leading-tight">1-on-1 support & student audits</p>
+                  <div className="flex items-center justify-between text-xs font-mono">
+                    <span className="text-zinc-500">LAST 7 DAYS:</span>
+                    <span className="text-zinc-300">₹{serviceMetrics.sevenDays.toLocaleString("en-IN")}</span>
+                  </div>
+                  <div className="flex items-center justify-between text-xs font-mono">
+                    <span className="text-zinc-500">LAST 30 DAYS:</span>
+                    <span className="text-zinc-300">₹{serviceMetrics.thirtyDays.toLocaleString("en-IN")}</span>
+                  </div>
+                  <div className="flex items-center justify-between text-xs font-mono border-t border-zinc-800/40 pt-2">
+                    <span className="text-zinc-400 font-sans font-semibold">LIFETIME REVENUE:</span>
+                    <span className="text-blue-300 font-bold">₹{serviceMetrics.lifetime.toLocaleString("en-IN")}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Category 3: GST / Tax Revenue */}
+              <div className="bg-zinc-900/15 border border-zinc-850 rounded-2xl p-5 shadow-xl space-y-4">
+                <div className="flex items-center space-x-2 border-b border-zinc-800/60 pb-3">
+                  <div className="p-1.5 rounded-lg bg-emerald-500/10 text-emerald-400">
+                    <Landmark className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h4 className="text-xs font-bold text-zinc-200 uppercase tracking-widest">GST / Tax Revenue</h4>
+                    <p className="text-[10px] text-zinc-500">18% inclusive GST from transactions</p>
+                  </div>
                 </div>
 
-                {/* Withdrawal Fee Income */}
-                <div className="p-4 bg-zinc-950/40 border border-zinc-900 rounded-xl space-y-1.5">
-                  <div className="flex items-center space-x-1.5 text-zinc-400">
-                    <Coins className="w-4 h-4 text-emerald-500" />
-                    <span className="text-[9px] font-bold uppercase tracking-wider">Withdrawal Fee Rev</span>
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between text-xs font-mono">
+                    <span className="text-zinc-500">TODAY:</span>
+                    <span className="text-emerald-400 font-bold">₹{gstMetrics.today.toLocaleString("en-IN")}</span>
                   </div>
-                  <p className="text-lg font-mono font-bold text-zinc-100">
-                    <AnimatedCounter value={withdrawalFeeRevenue} />
-                  </p>
-                  <p className="text-[9px] text-zinc-500 font-sans leading-tight">Processing commissions & standard fees</p>
-                </div>
-
-                {/* Other Manual/Platform Fee Revenue */}
-                <div className="p-4 bg-zinc-950/40 border border-zinc-900 rounded-xl space-y-1.5">
-                  <div className="flex items-center space-x-1.5 text-zinc-400">
-                    <ShieldCheck className="w-4 h-4 text-purple-500" />
-                    <span className="text-[9px] font-bold uppercase tracking-wider">Other Rev / Fees</span>
+                  <div className="flex items-center justify-between text-xs font-mono">
+                    <span className="text-zinc-500">LAST 7 DAYS:</span>
+                    <span className="text-zinc-300">₹{gstMetrics.sevenDays.toLocaleString("en-IN")}</span>
                   </div>
-                  <p className="text-lg font-mono font-bold text-zinc-100">
-                    <AnimatedCounter value={platformFeeRevenue + otherRevenue} />
-                  </p>
-                  <p className="text-[9px] text-zinc-500 font-sans leading-tight">Challenges & custom manual sponsorships</p>
-                </div>
-
-                {/* Total Ad Cost */}
-                <div className="p-4 bg-zinc-950/40 border border-zinc-900 rounded-xl space-y-1.5">
-                  <div className="flex items-center space-x-1.5 text-zinc-400">
-                    <TrendingDown className="w-4 h-4 text-red-500" />
-                    <span className="text-[9px] font-bold uppercase tracking-wider">Total Ad Cost</span>
+                  <div className="flex items-center justify-between text-xs font-mono">
+                    <span className="text-zinc-500">LAST 30 DAYS:</span>
+                    <span className="text-zinc-300">₹{gstMetrics.thirtyDays.toLocaleString("en-IN")}</span>
                   </div>
-                  <p className="text-lg font-mono font-bold text-red-400">
-                    <AnimatedCounter value={totalAdCost} />
-                  </p>
-                  <p className="text-[9px] text-zinc-500 font-sans leading-tight">Spent on advertising campaigns</p>
-                </div>
-
-                {/* Total User Payout */}
-                <div className="p-4 bg-zinc-950/40 border border-zinc-900 rounded-xl space-y-1.5">
-                  <div className="flex items-center space-x-1.5 text-zinc-400">
-                    <ArrowUpRight className="w-4 h-4 text-orange-500" />
-                    <span className="text-[9px] font-bold uppercase tracking-wider">Total User Payout</span>
+                  <div className="flex items-center justify-between text-xs font-mono border-t border-zinc-800/40 pt-2">
+                    <span className="text-zinc-400 font-sans font-semibold">LIFETIME REVENUE:</span>
+                    <span className="text-emerald-300 font-bold">₹{gstMetrics.lifetime.toLocaleString("en-IN")}</span>
                   </div>
-                  <p className="text-lg font-mono font-bold text-zinc-200">
-                    <AnimatedCounter value={totalUserPayout} />
-                  </p>
-                  <p className="text-[9px] text-zinc-500 font-sans leading-tight">Successfully disbursed disbursements</p>
                 </div>
-
-                {/* Total Pending Payout */}
-                <div className="p-4 bg-zinc-950/40 border border-zinc-900 rounded-xl space-y-1.5">
-                  <div className="flex items-center space-x-1.5 text-zinc-400">
-                    <Hourglass className="w-4 h-4 text-yellow-500" />
-                    <span className="text-[9px] font-bold uppercase tracking-wider">Total Pending Payout</span>
-                  </div>
-                  <p className="text-lg font-mono font-bold text-yellow-400">
-                    <AnimatedCounter value={totalPendingPayout} />
-                  </p>
-                  <p className="text-[9px] text-zinc-500 font-sans leading-tight">Awaiting verification/processing</p>
-                </div>
-
               </div>
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              {/* Record Manual Revenue / Expense Entry */}
-              <div className="bg-slate-950/20 border border-zinc-850 rounded-2xl p-6 shadow-xl space-y-4">
-                <div className="flex items-center justify-between">
-                  <h3 className="text-sm font-display font-semibold text-zinc-100 uppercase tracking-wider flex items-center space-x-2">
-                    <PlusCircle className="w-5 h-5 text-teal-400" />
-                    <span>Log Manual Revenue / Expense Entry</span>
+            {/* 📝 MANUAL ENTRY & REVENUE HISTORY SECTION */}
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+              {/* Form: Record Manual Revenue */}
+              <div className="lg:col-span-4 bg-zinc-950/20 border border-zinc-850 rounded-2xl p-5 shadow-xl space-y-4">
+                <div className="border-b border-zinc-800 pb-2">
+                  <h3 className="text-xs font-display font-bold text-zinc-100 uppercase tracking-widest flex items-center space-x-2">
+                    <PlusCircle className="w-4.5 h-4.5 text-teal-400" />
+                    <span>Record Manual Entry</span>
                   </h3>
+                  <p className="text-[10px] text-zinc-400 mt-1">Directly log offline income, software licenses, or marketing expenses.</p>
                 </div>
-                <p className="text-xs text-zinc-400">Directly enter offline payments, sponsor deals, software costs, or advertising expenses. These update your analytics in real time.</p>
 
-                <form onSubmit={handleRecordManualEntry} className="space-y-4">
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-[10px] text-zinc-400 uppercase font-mono mb-1">Entry Title *</label>
-                      <input
-                        type="text"
-                        name="manual_title"
-                        required
-                        placeholder="e.g. YouTube Ad Campaign July"
-                        className="w-full bg-slate-950 border border-zinc-800 rounded-xl py-2 px-3 text-xs text-zinc-300"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-[10px] text-zinc-400 uppercase font-mono mb-1">Transaction Category</label>
-                      <select
-                        name="manual_category"
-                        className="w-full bg-slate-950 border border-zinc-800 rounded-xl py-2 px-3 text-xs text-zinc-300"
-                      >
-                        <option value="other_manual_income">Other Income (Revenue)</option>
-                        <option value="ad_cost">Ad Cost / Campaign (Expense)</option>
-                        <option value="membership_purchase">Membership Plan (Revenue)</option>
-                        <option value="service_purchase">Premium Service (Revenue)</option>
-                        <option value="withdrawal_fee">Withdrawal processing fee (Revenue)</option>
-                        <option value="platform_fee">Platform fee commission (Revenue)</option>
-                      </select>
-                    </div>
+                <form onSubmit={handleRecordManualEntry} className="space-y-3">
+                  <div>
+                    <label className="block text-[9px] text-zinc-400 uppercase font-mono mb-1">Entry Title *</label>
+                    <input
+                      type="text"
+                      name="manual_title"
+                      required
+                      placeholder="e.g. YouTube Promo Ad"
+                      className="w-full bg-slate-950 border border-zinc-800 rounded-xl py-1.5 px-3 text-xs text-zinc-300 font-sans"
+                    />
                   </div>
 
-                  <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-[9px] text-zinc-400 uppercase font-mono mb-1">Transaction Type</label>
+                    <select
+                      name="manual_category"
+                      className="w-full bg-slate-950 border border-zinc-800 rounded-xl py-1.5 px-3 text-xs text-zinc-300 font-sans"
+                    >
+                      <option value="membership_purchase">Membership Revenue</option>
+                      <option value="service_purchase">Service Revenue</option>
+                      <option value="ad_cost">Expenses (Ad Cost/Software)</option>
+                    </select>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <label className="block text-[10px] text-zinc-400 uppercase font-mono mb-1">Amount (₹) *</label>
+                      <label className="block text-[9px] text-zinc-400 uppercase font-mono mb-1">Amount (₹) *</label>
                       <input
                         type="number"
                         name="manual_amount"
                         required
-                        placeholder="e.g. 5000"
-                        className="w-full bg-slate-950 border border-zinc-800 rounded-xl py-2 px-3 text-xs text-zinc-300 font-mono"
+                        placeholder="e.g. 1500"
+                        className="w-full bg-slate-950 border border-zinc-800 rounded-xl py-1.5 px-3 text-xs text-zinc-300 font-mono"
                       />
                     </div>
                     <div>
-                      <label className="block text-[10px] text-zinc-400 uppercase font-mono mb-1">Transaction Date</label>
+                      <label className="block text-[9px] text-zinc-400 uppercase font-mono mb-1">Date</label>
                       <input
                         type="date"
                         name="manual_date"
                         defaultValue={new Date().toISOString().split("T")[0]}
-                        className="w-full bg-slate-950 border border-zinc-800 rounded-xl py-2 px-3 text-xs text-zinc-300 font-mono"
+                        className="w-full bg-slate-950 border border-zinc-800 rounded-xl py-1.5 px-3 text-xs text-zinc-300 font-mono"
                       />
                     </div>
                   </div>
 
                   <div>
-                    <label className="block text-[10px] text-zinc-400 uppercase font-mono mb-1">Detailed Description</label>
+                    <label className="block text-[9px] text-zinc-400 uppercase font-mono mb-1">Remarks / Particulars</label>
                     <textarea
                       name="manual_desc"
                       rows={2}
-                      placeholder="Specify payment method, receipts, particulars..."
-                      className="w-full bg-slate-950 border border-zinc-800 rounded-xl py-2 px-3 text-xs text-zinc-300"
+                      placeholder="Details, bill ref numbers..."
+                      className="w-full bg-slate-950 border border-zinc-800 rounded-xl py-1.5 px-3 text-xs text-zinc-300"
                     />
                   </div>
 
-                  <div className="flex justify-end">
+                  <div className="pt-2">
                     <button
                       type="submit"
                       disabled={actionLoading === "record_manual_income"}
-                      className="px-5 py-2 bg-gradient-to-r from-teal-500 to-emerald-500 hover:from-teal-600 hover:to-emerald-600 text-slate-950 font-bold text-xs rounded-xl shadow-md flex items-center space-x-1.5"
+                      className="w-full py-2 bg-gradient-to-r from-teal-500 to-emerald-500 hover:from-teal-600 hover:to-emerald-600 text-slate-950 font-bold text-xs rounded-xl shadow-md flex items-center justify-center space-x-1.5 transition-all cursor-pointer"
                     >
                       {actionLoading === "record_manual_income" ? (
                         <RefreshCw className="w-3.5 h-3.5 animate-spin" />
                       ) : (
                         <Save className="w-3.5 h-3.5" />
                       )}
-                      <span>Save Entry & Update Balances</span>
+                      <span>Commit Manual Entry</span>
                     </button>
                   </div>
                 </form>
               </div>
 
-              {/* Real-time Ledger */}
-              <div className="bg-slate-950/20 border border-zinc-850 rounded-2xl p-6 shadow-xl space-y-4">
-                <h3 className="text-sm font-display font-semibold text-zinc-100 uppercase tracking-wider flex items-center space-x-2">
-                  <Terminal className="w-5 h-5 text-amber-500" />
-                  <span>Recent Platform Financial Transactions</span>
-                </h3>
+              {/* Table: Revenue History Ledger */}
+              <div className="lg:col-span-8 bg-zinc-950/20 border border-zinc-850 rounded-2xl p-5 shadow-xl space-y-4">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-zinc-800 pb-3">
+                  <div>
+                    <h3 className="text-xs font-display font-bold text-zinc-100 uppercase tracking-widest flex items-center space-x-2">
+                      <Terminal className="w-4.5 h-4.5 text-amber-500" />
+                      <span>Ledger & History</span>
+                    </h3>
+                    <p className="text-[10px] text-zinc-400 mt-1">Real-time captured revenue streams and split tax ledger accounts.</p>
+                  </div>
 
-                <div className="space-y-3 max-h-[320px] overflow-y-auto pr-1">
-                  {revenueTransactions.length === 0 ? (
-                    <div className="text-center py-12 text-zinc-500 font-sans italic">
-                      No transactions captured in active ledger sessions.
+                  {/* Filter Controls */}
+                  <div className="flex items-center gap-2">
+                    <div className="relative">
+                      <Search className="w-3 h-3 text-zinc-500 absolute left-2.5 top-2" />
+                      <input
+                        type="text"
+                        placeholder="Search ledger..."
+                        value={revenueSearch}
+                        onChange={(e) => setRevenueSearch(e.target.value)}
+                        className="bg-slate-950 border border-zinc-800 rounded-lg pl-8 pr-3 py-1 text-[11px] text-zinc-300 w-32 focus:w-48 transition-all duration-300"
+                      />
                     </div>
-                  ) : (
-                    revenueTransactions.slice(0, 12).map((tx) => {
-                      const isAd = tx.type === "ad_cost";
-                      return (
-                        <div key={tx.id} className="p-3 bg-zinc-950/40 border border-zinc-900 rounded-xl flex justify-between items-center text-[11px] hover:border-zinc-800 transition-colors">
-                          <div>
-                            <span className="font-semibold text-zinc-200 block truncate max-w-[220px]">
-                              {tx.title || tx.description}
-                            </span>
-                            <span className="text-[9px] text-zinc-500 font-mono block">
-                              Category: {tx.type.toUpperCase()} • {tx.manualDate || (tx.timestamp?.seconds ? new Date(tx.timestamp.seconds * 1000).toLocaleDateString("en-IN") : "Just now")}
-                            </span>
-                            {tx.title && tx.description && (
-                              <p className="text-[10px] text-zinc-400 mt-1 font-sans">{tx.description}</p>
-                            )}
-                          </div>
-                          <span className={`font-bold font-mono shrink-0 ml-2 ${isAd ? "text-red-400" : "text-emerald-400"}`}>
-                            {isAd ? "-" : "+"}₹{(tx.amount || 0).toLocaleString("en-IN")}
-                          </span>
-                        </div>
-                      );
-                    })
-                  )}
+
+                    <select
+                      value={revenueFilter}
+                      onChange={(e) => setRevenueFilter(e.target.value)}
+                      className="bg-slate-950 border border-zinc-800 rounded-lg px-2 py-1 text-[11px] text-zinc-300 outline-none cursor-pointer"
+                    >
+                      <option value="All">All Categories</option>
+                      <option value="Membership Revenue">Membership Revenue</option>
+                      <option value="Service Revenue">Service Revenue</option>
+                      <option value="GST Revenue">GST Revenue</option>
+                      <option value="Expenses">Expenses</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="overflow-x-auto max-h-[350px] overflow-y-auto pr-1">
+                  <table className="w-full text-left border-collapse">
+                    <thead>
+                      <tr className="border-b border-zinc-800 text-[9px] uppercase tracking-wider text-zinc-400 font-mono">
+                        <th className="py-2 px-1">Tx ID</th>
+                        <th className="py-2 px-1">Revenue Type</th>
+                        <th className="py-2 px-1">Source / Account</th>
+                        <th className="py-2 px-1">User Name (ID)</th>
+                        <th className="py-2 px-1 text-right">Amount</th>
+                        <th className="py-2 px-1 text-center">Date</th>
+                        <th className="py-2 px-1 text-right">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-zinc-900 text-xs text-zinc-300">
+                      {filteredTransactions.length === 0 ? (
+                        <tr>
+                          <td colSpan={7} className="text-center py-16 text-zinc-500 italic font-sans">
+                            No ledger entries found matching your query criteria.
+                          </td>
+                        </tr>
+                      ) : (
+                        (filteredTransactions as any[]).map((tx: any) => {
+                          const isAd = tx.type === "ad_cost" || tx.revenueType === "Expense";
+                          const formattedDate = tx.manualDate || (tx.timestamp?.seconds ? new Date(tx.timestamp.seconds * 1000).toLocaleDateString("en-IN") : "Just now");
+                          return (
+                            <tr key={tx.id} className="hover:bg-zinc-900/30 transition-colors">
+                              <td className="py-2 px-1 font-mono text-[10px] text-zinc-500">
+                                {tx.id ? tx.id.substring(0, 8).toUpperCase() : "MANUAL"}
+                              </td>
+                              <td className="py-2 px-1 font-semibold text-zinc-200">
+                                {tx.revenueType || tx.type || "Revenue"}
+                              </td>
+                              <td className="py-2 px-1 text-zinc-400 text-[11px]">
+                                {tx.source || tx.title || "Direct Credit"}
+                              </td>
+                              <td className="py-2 px-1 text-[11px] text-zinc-400">
+                                {tx.username ? (
+                                  <span>
+                                    {tx.username}{" "}
+                                    <span className="text-[9px] text-zinc-500 font-mono">
+                                      ({tx.userId ? tx.userId.substring(0, 5) : ""})
+                                    </span>
+                                  </span>
+                                ) : (
+                                  <span className="italic text-zinc-600">Platform</span>
+                                )}
+                              </td>
+                              <td className={`py-2 px-1 text-right font-bold font-mono ${isAd ? "text-red-400" : "text-emerald-400"}`}>
+                                {isAd ? "-" : "+"}₹{(tx.amount || 0).toLocaleString("en-IN")}
+                              </td>
+                              <td className="py-2 px-1 text-center text-[10px] text-zinc-500 font-mono">
+                                {formattedDate}
+                              </td>
+                              <td className="py-2 px-1 text-right">
+                                <button
+                                  onClick={() => handleDeleteRevenueTransaction(tx.id)}
+                                  className="p-1 rounded text-red-400 hover:bg-red-500/10 hover:text-red-300 transition-colors cursor-pointer"
+                                  title="Delete transaction log permanently"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </td>
+                            </tr>
+                          );
+                        })
+                      )}
+                    </tbody>
+                  </table>
                 </div>
               </div>
             </div>
@@ -6261,7 +7158,7 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
                 </div>
               </div>
 
-              <div className="pt-3 border-t border-zinc-900 grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div className="pt-3 border-t border-zinc-900 grid grid-cols-1 sm:grid-cols-4 gap-4">
                 <div>
                   <label className="block text-[10px] text-zinc-400 font-mono uppercase tracking-wider mb-1">User Rank Override</label>
                   <input
@@ -6273,17 +7170,49 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
                   />
                 </div>
                 <div>
-                  <label className="block text-[10px] text-zinc-400 font-mono uppercase tracking-wider mb-1">User Badge Override</label>
-                  <input
-                    type="text"
-                    value={editCustomBadge}
-                    onChange={(e) => setEditCustomBadge(e.target.value)}
-                    className="w-full bg-slate-950 border border-zinc-850 rounded-xl py-2 px-3 text-zinc-200 focus:outline-hidden focus:border-amber-500/50 font-mono"
-                    placeholder="e.g. Diamond, Superstar"
-                  />
+                  <label className="block text-[10px] text-zinc-400 font-mono uppercase tracking-wider mb-1">Badge Mode</label>
+                  <select
+                    value={editBadgeMode}
+                    onChange={(e) => {
+                      const mode = e.target.value as "auto" | "manual";
+                      setEditBadgeMode(mode);
+                    }}
+                    className="w-full bg-slate-950 border border-zinc-850 rounded-xl py-2 px-3 text-zinc-200 focus:outline-hidden focus:border-amber-500/50 text-xs"
+                  >
+                    <option value="auto">🔄 Auto (Sync)</option>
+                    <option value="manual">✍️ Manual (Override)</option>
+                  </select>
                 </div>
                 <div>
-                  <label className="block text-[10px] text-zinc-400 font-mono uppercase tracking-wider mb-1">Membership Badge Override</label>
+                  <label className="block text-[10px] text-zinc-400 font-mono uppercase tracking-wider mb-1">
+                    {editBadgeMode === "manual" ? "Assign Badge" : "Current Badge"}
+                  </label>
+                  {editBadgeMode === "manual" ? (
+                    <select
+                      value={editBadge}
+                      onChange={(e) => setEditBadge(e.target.value)}
+                      className="w-full bg-slate-950 border border-zinc-850 rounded-xl py-2 px-3 text-zinc-200 focus:outline-hidden focus:border-amber-500/50 text-xs font-bold text-amber-400"
+                    >
+                      {badges.map((b) => (
+                        <option key={b.name} value={b.name}>{b.icon} {b.name.toUpperCase()}</option>
+                      ))}
+                      {badges.length === 0 && (
+                        <>
+                          <option value="Bronze">🥉 BRONZE</option>
+                          <option value="Silver">🛡️ SILVER</option>
+                          <option value="Gold">👑 GOLD</option>
+                          <option value="Diamond">💎 DIAMOND</option>
+                        </>
+                      )}
+                    </select>
+                  ) : (
+                    <div className="w-full bg-zinc-900 border border-zinc-850 rounded-xl py-2 px-3 text-zinc-400 font-mono text-xs flex items-center space-x-1 whitespace-nowrap">
+                      <span>🔄 Calculated: {editBadge || "Bronze"}</span>
+                    </div>
+                  )}
+                </div>
+                <div>
+                  <label className="block text-[10px] text-zinc-400 font-mono uppercase tracking-wider mb-1">VIP Label Override</label>
                   <input
                     type="text"
                     value={editVipTagText}

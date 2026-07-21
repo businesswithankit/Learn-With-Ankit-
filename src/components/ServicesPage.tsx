@@ -159,6 +159,9 @@ export default function ServicesPage({ user, onUpdateUser }: ServicesPageProps) 
         // Fetch global revenue settings
         const revSnap = await transaction.get(revenueRef);
 
+        const founderWalletRef = doc(db, "settings", "founderRevenueWallet");
+        const founderWalletSnap = await transaction.get(founderWalletRef);
+
         if (currentBalance < selectedService.price) {
           throw new Error("Insufficient Wallet Balance");
         }
@@ -177,6 +180,17 @@ export default function ServicesPage({ user, onUpdateUser }: ServicesPageProps) 
             walletBalance: currentFounderBalance + selectedService.price
           });
         }
+
+        // Credit the dedicated Founder Revenue Wallet
+        let founderWalletData = { currentBalance: 0, totalLifetimeRevenue: 0 };
+        if (founderWalletSnap.exists()) {
+          founderWalletData = founderWalletSnap.data() as any;
+        }
+        transaction.set(founderWalletRef, {
+          currentBalance: (founderWalletData.currentBalance || 0) + selectedService.price,
+          totalLifetimeRevenue: (founderWalletData.totalLifetimeRevenue || 0) + selectedService.price,
+          updatedAt: serverTimestamp()
+        });
 
         // Create Purchase Log
         transaction.set(purchaseRef, {
@@ -238,14 +252,37 @@ export default function ServicesPage({ user, onUpdateUser }: ServicesPageProps) 
 
         transaction.set(revenueRef, revData);
 
-        // Record global revenue transaction log
-        transaction.set(txRef, {
+        // Split transaction into GST and Base Service Charge
+        const sPrice = selectedService.price;
+        const gstAmount = Math.round(sPrice * 18 / 118 * 100) / 100;
+        const baseAmount = Number((sPrice - gstAmount).toFixed(2));
+
+        const gstTxRef = doc(collection(db, "revenueTransactions"));
+        transaction.set(gstTxRef, {
           userId: user.userId,
           username: user.username,
-          amount: selectedService.price,
-          type: "service_purchase",
+          amount: gstAmount,
+          revenueType: "GST Revenue",
+          type: "service_purchase_gst",
+          source: "Service Purchase",
+          description: `GST portion (18% inclusive) of Service Purchase: ${selectedService.name}`,
+          timestamp: serverTimestamp(),
+          date: new Date().toLocaleDateString("en-IN"),
+          status: "Completed"
+        });
+
+        const baseTxRef = doc(collection(db, "revenueTransactions"));
+        transaction.set(baseTxRef, {
+          userId: user.userId,
+          username: user.username,
+          amount: baseAmount,
+          revenueType: "Service Revenue",
+          type: "service_purchase_base",
+          source: "Service Purchase",
           description: `Service Purchase: ${selectedService.name}`,
           timestamp: serverTimestamp(),
+          date: new Date().toLocaleDateString("en-IN"),
+          status: "Completed"
         });
       });
 

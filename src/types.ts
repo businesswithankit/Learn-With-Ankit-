@@ -29,7 +29,7 @@ export interface UserProfile {
   last30DaysEarnings: number;
   profilePic?: string;
   role: 'founder' | 'admin' | 'co-founder' | 'co_founder' | 'user';
-  badge: 'Bronze' | 'Silver' | 'Gold' | 'Diamond';
+  badge?: string;
   kycName?: string;
   kycUpiId?: string;
   kycUpiNumber?: string;
@@ -46,6 +46,7 @@ export interface UserProfile {
   vipTagText?: string; // e.g. "VIP MEMBER", "ELITE MEMBER"
   customRank?: string;
   customBadge?: string;
+  badgeMode?: 'auto' | 'manual';
   membershipStatus?: 'Active' | 'Expired' | 'Cancelled';
 }
 
@@ -194,6 +195,7 @@ export interface LeaderboardUser {
   earnings: number;
   rank?: number;
   isPremium?: boolean;
+  badge?: string;
 }
 
 export interface MembershipPlan {

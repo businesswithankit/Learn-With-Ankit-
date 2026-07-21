@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { onAuthStateChanged, signInWithEmailAndPassword, signOut, createUserWithEmailAndPassword } from "firebase/auth";
-import { doc, onSnapshot, setDoc, addDoc, collection, serverTimestamp, query, where, getDoc, updateDoc } from "firebase/firestore";
+import { doc, onSnapshot, setDoc, addDoc, collection, serverTimestamp, query, where, getDoc, updateDoc, writeBatch, orderBy } from "firebase/firestore";
 import { auth, db } from "./firebase";
 import { UserProfile, PaymentRequest } from "./types";
 import { calculateUserRollingEarnings } from "./utils/earnings";
@@ -63,6 +63,7 @@ export default function App() {
   const [customPages, setCustomPages] = useState<any[]>([]);
   const [helpVideoUrl, setHelpVideoUrl] = useState<string | null>(null);
   const [helpVideoTitle, setHelpVideoTitle] = useState("");
+  const [badges, setBadges] = useState<any[]>([]);
 
   // Global document title sync
   useEffect(() => {
@@ -74,6 +75,69 @@ export default function App() {
   }, [websiteSettings]);
 
   useEffect(() => {
+    // Listen to badges in real-time and auto-seed if empty
+    const qBadges = query(collection(db, "badges"), orderBy("displayOrder", "asc"));
+    const unsubBadges = onSnapshot(qBadges, async (snapshot) => {
+      const list: any[] = [];
+      snapshot.forEach((doc) => {
+        list.push({ id: doc.id, ...doc.data() });
+      });
+      if (list.length === 0) {
+        try {
+          const batch = writeBatch(db);
+          const defaultBadges = [
+            {
+              name: "Bronze",
+              icon: "🥉",
+              color: "from-amber-600 via-amber-700 to-amber-800 text-amber-200 border-amber-800/40",
+              minEarnings: 0,
+              description: "Initial Starter Affiliate - Milestone of ₹0+",
+              displayOrder: 1,
+              status: "Active"
+            },
+            {
+              name: "Silver",
+              icon: "🛡️",
+              color: "from-slate-300 via-slate-400 to-zinc-500 text-slate-100 border-slate-300/40",
+              minEarnings: 10000,
+              description: "Rising Professional Status - Milestone of ₹10,000+",
+              displayOrder: 2,
+              status: "Active"
+            },
+            {
+              name: "Gold",
+              icon: "👑",
+              color: "from-amber-300 via-yellow-500 to-yellow-600 text-amber-200 border-yellow-400/40",
+              minEarnings: 50000,
+              description: "Master Earner Legend - Milestone of ₹50,000+",
+              displayOrder: 3,
+              status: "Active"
+            },
+            {
+              name: "Diamond",
+              icon: "💎",
+              color: "from-cyan-400 via-blue-500 to-indigo-600 text-cyan-200 border-cyan-400/40",
+              minEarnings: 200000,
+              description: "Ultimate Elite Performer - Milestone of ₹2,00,000+",
+              displayOrder: 4,
+              status: "Active"
+            }
+          ];
+          defaultBadges.forEach((b) => {
+            const docRef = doc(collection(db, "badges"));
+            batch.set(docRef, b);
+          });
+          await batch.commit();
+        } catch (e) {
+          console.error("Failed to seed default badges:", e);
+        }
+      } else {
+        setBadges(list);
+      }
+    }, (err) => {
+      console.warn("Badges subscription error:", err);
+    });
+
     // Listen to feature toggles for Maintenance Mode
     const unsubFeatures = onSnapshot(doc(db, "settings", "features"), (snapshot) => {
       if (snapshot.exists()) {
@@ -109,6 +173,7 @@ export default function App() {
     });
 
     return () => {
+      unsubBadges();
       unsubFeatures();
       unsubWebsite();
       unsubPages();
@@ -123,6 +188,46 @@ export default function App() {
       setLoginError("Maintenance Mode Activated. Please try again later.");
     }
   }, [maintenanceMode, currentUser]);
+
+  // Automatic badge calculation & synchronization inside App.tsx
+  useEffect(() => {
+    if (!currentUser || badges.length === 0) return;
+
+    const isManual = (currentUser as any).badgeMode === "manual";
+    if (isManual) return; // Ignore if manual mode is enabled
+
+    const activeBadges = badges.filter(b => b.status === "Active");
+    if (activeBadges.length === 0) return;
+
+    // Find highest qualified badge
+    const qualified = [...activeBadges]
+      .filter(b => (currentUser.totalEarnings || 0) >= (b.minEarnings || 0))
+      .sort((a, b) => (b.minEarnings || 0) - (a.minEarnings || 0));
+
+    const correctBadge = qualified.length > 0 ? qualified[0].name : "Bronze";
+
+    if (currentUser.badge !== correctBadge) {
+      const userRef = doc(db, "users", currentUser.userId);
+      const prevBadge = currentUser.badge || "Bronze";
+
+      updateDoc(userRef, {
+        badge: correctBadge
+      }).then(() => {
+        // Record complete badge history in Firestore
+        addDoc(collection(db, "badgeHistory"), {
+          userId: currentUser.userId,
+          username: currentUser.username,
+          previousBadge: prevBadge,
+          newBadge: correctBadge,
+          changedBy: "System (Auto)",
+          mode: "Auto",
+          timestamp: serverTimestamp()
+        });
+      }).catch((err) => {
+        console.error("Failed to automatically update user badge:", err);
+      });
+    }
+  }, [currentUser?.totalEarnings, currentUser?.badge, (currentUser as any)?.badgeMode, badges]);
 
   useEffect(() => {
     let unsubscribeProfile: (() => void) | null = null;
@@ -736,7 +841,10 @@ export default function App() {
                 <div className="flex space-x-3 items-center">
                   <div className="text-center bg-slate-950/65 px-4 py-2 rounded-xl border border-zinc-900">
                     <span className="text-[8px] uppercase tracking-wider text-zinc-500 font-mono block">Achievement level</span>
-                    <span className="text-xs font-display font-bold text-amber-400">★ {(currentUser?.customBadge || currentUser?.badge || "Bronze").toUpperCase()} Badge</span>
+                    <span className="text-xs font-display font-bold text-amber-400">
+                      {badges.find(b => b.name === currentUser?.badge)?.icon || "★"}{" "}
+                      {(currentUser?.customBadge || currentUser?.badge || "Bronze").toUpperCase()} Badge
+                    </span>
                   </div>
                   {currentUser && (currentUser as any).customRank && (
                     <div className="text-center bg-slate-950/65 px-4 py-2 rounded-xl border border-zinc-900">

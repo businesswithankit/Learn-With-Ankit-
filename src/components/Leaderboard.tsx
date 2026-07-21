@@ -69,6 +69,7 @@ export default function Leaderboard({ currentUser }: LeaderboardProps) {
       rank: index + 1,
       customRank: (u as any).customRank || null,
       isPremium: u.isPremium || false,
+      badge: u.badge,
     }));
   };
 
@@ -266,6 +267,11 @@ export default function Leaderboard({ currentUser }: LeaderboardProps) {
                         {user.isPremium && (
                           <span className="px-1.5 py-0.5 text-[8px] font-black tracking-wider bg-amber-400 text-slate-950 rounded-xs leading-none shrink-0 animate-pulse">
                             👑 VIP
+                          </span>
+                        )}
+                        {user.badge && (
+                          <span className="px-1.5 py-0.5 text-[8px] font-bold tracking-wider bg-zinc-900 text-amber-400 border border-amber-500/20 rounded-xs leading-none shrink-0">
+                            ★ {user.badge.toUpperCase()}
                           </span>
                         )}
                       </div>

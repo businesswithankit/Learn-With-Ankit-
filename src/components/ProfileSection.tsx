@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { User, Mail, Phone, MapPin, Calendar, Award, Shield, DollarSign, Wallet, CheckCircle, Edit, RefreshCw, Lock, Zap, Check, Coins, ShieldCheck, Key, Share2 } from "lucide-react";
-import { doc, updateDoc, collection, query, onSnapshot, runTransaction, serverTimestamp, addDoc, getDoc, getDocs, where, limit } from "firebase/firestore";
+import { doc, updateDoc, collection, query, onSnapshot, runTransaction, serverTimestamp, addDoc, getDoc, getDocs, where, limit, orderBy } from "firebase/firestore";
 import { updatePassword, reauthenticateWithCredential, EmailAuthProvider } from "firebase/auth";
 import { db, auth, handleFirestoreError, OperationType } from "../firebase";
 import { UserProfile, MembershipPlan } from "../types";
@@ -50,6 +50,7 @@ export default function ProfileSection({ user, onUpdateUser }: ProfileSectionPro
   const [purchaseLoading, setPurchaseLoading] = useState(false);
   const [purchaseSuccess, setPurchaseSuccess] = useState("");
   const [purchaseError, setPurchaseError] = useState("");
+  const [badges, setBadges] = useState<any[]>([]);
 
   // Fetch Premium Membership plans
   useEffect(() => {
@@ -62,6 +63,22 @@ export default function ProfileSection({ user, onUpdateUser }: ProfileSectionPro
     }, (err) => handleFirestoreError(err, OperationType.LIST, "membershipPlans"));
 
     return () => unsubPlans();
+  }, []);
+
+  // Fetch Badges collection
+  useEffect(() => {
+    const q = query(collection(db, "badges"), orderBy("displayOrder", "asc"));
+    const unsubBadges = onSnapshot(q, (snapshot) => {
+      const list: any[] = [];
+      snapshot.forEach((doc) => {
+        list.push({ id: doc.id, ...doc.data() });
+      });
+      setBadges(list);
+    }, (err) => {
+      console.warn("Error fetching badges in profile:", err);
+    });
+
+    return () => unsubBadges();
   }, []);
 
   const handleChangePassword = async (e: React.FormEvent) => {
@@ -117,6 +134,22 @@ export default function ProfileSection({ user, onUpdateUser }: ProfileSectionPro
 
   // Dynamic Badge calculation based on cumulative total earnings
   const getBadgeDetails = (earnings: number) => {
+    const activeBadges = badges.filter(b => b.status === "Active");
+    if (activeBadges.length > 0) {
+      const qualified = [...activeBadges]
+        .filter(b => earnings >= (b.minEarnings || 0))
+        .sort((a, b) => (b.minEarnings || 0) - (a.minEarnings || 0));
+      if (qualified.length > 0) {
+        const best = qualified[0];
+        return {
+          tier: best.name,
+          color: best.color || "from-amber-600 via-amber-700 to-amber-800 text-amber-200 border-amber-800/40",
+          description: best.description || `Milestone of ₹${best.minEarnings}+`,
+          icon: best.icon || "🏅",
+        };
+      }
+    }
+
     if (earnings >= 200000) {
       return {
         tier: "Diamond",
@@ -148,10 +181,24 @@ export default function ProfileSection({ user, onUpdateUser }: ProfileSectionPro
     }
   };
 
+  const getBadgeByName = (name: string) => {
+    const found = badges.find(b => b.name === name);
+    if (found) {
+      return {
+        tier: found.name,
+        color: found.color || "from-amber-600 via-amber-700 to-amber-800 text-amber-200 border-amber-800/40",
+        description: found.description || `Milestone of ₹${found.minEarnings}+`,
+        icon: found.icon || "🏅"
+      };
+    }
+    return null;
+  };
+
   const rawBadge = getBadgeDetails(user.totalEarnings || 0);
-  const badge = {
+  const matchedBadge = user.badge ? getBadgeByName(user.badge) : null;
+  const badge = matchedBadge || {
     ...rawBadge,
-    tier: (user as any).customBadge || rawBadge.tier,
+    tier: (user as any).customBadge || user.badge || rawBadge.tier,
     description: (user as any).customBadge ? `Custom achievement level specified by Administrator: ${(user as any).customBadge}` : rawBadge.description
   };
 
@@ -314,6 +361,9 @@ export default function ProfileSection({ user, onUpdateUser }: ProfileSectionPro
 
         const revSnap = await transaction.get(revenueRef);
 
+        const founderWalletRef = doc(db, "settings", "founderRevenueWallet");
+        const founderWalletSnap = await transaction.get(founderWalletRef);
+
         // --- VALIDATE ALL CONDITIONS ---
         // (All conditions validated above)
 
@@ -346,6 +396,17 @@ export default function ProfileSection({ user, onUpdateUser }: ProfileSectionPro
             walletBalance: currentFounderBalance + selectedPlan.price
           });
         }
+
+        // Credit the dedicated Founder Revenue Wallet
+        let founderWalletData = { currentBalance: 0, totalLifetimeRevenue: 0 };
+        if (founderWalletSnap.exists()) {
+          founderWalletData = founderWalletSnap.data() as any;
+        }
+        transaction.set(founderWalletRef, {
+          currentBalance: (founderWalletData.currentBalance || 0) + selectedPlan.price,
+          totalLifetimeRevenue: (founderWalletData.totalLifetimeRevenue || 0) + selectedPlan.price,
+          updatedAt: serverTimestamp()
+        });
 
         const todayStr = new Date().toLocaleDateString("en-CA");
         
@@ -383,13 +444,37 @@ export default function ProfileSection({ user, onUpdateUser }: ProfileSectionPro
 
         transaction.set(revenueRef, revData);
 
-        transaction.set(txRef, {
+        // Split transaction into GST and Base Membership
+        const planPrice = selectedPlan.price;
+        const gstAmount = Math.round(planPrice * 18 / 118 * 100) / 100;
+        const baseAmount = Number((planPrice - gstAmount).toFixed(2));
+
+        const gstTxRef = doc(collection(db, "revenueTransactions"));
+        transaction.set(gstTxRef, {
           userId: user.userId,
           username: user.username,
-          amount: selectedPlan.price,
-          type: "premium_purchase",
+          amount: gstAmount,
+          revenueType: "GST Revenue",
+          type: "membership_purchase_gst",
+          source: "Membership Upgrade",
+          description: `GST portion (18% inclusive) of Premium Membership Purchase: ${selectedPlan.name}`,
+          timestamp: serverTimestamp(),
+          date: new Date().toLocaleDateString("en-IN"),
+          status: "Completed"
+        });
+
+        const baseTxRef = doc(collection(db, "revenueTransactions"));
+        transaction.set(baseTxRef, {
+          userId: user.userId,
+          username: user.username,
+          amount: baseAmount,
+          revenueType: "Membership Revenue",
+          type: "membership_purchase_base",
+          source: "Membership Upgrade",
           description: `Premium Membership Purchase: ${selectedPlan.name}`,
           timestamp: serverTimestamp(),
+          date: new Date().toLocaleDateString("en-IN"),
+          status: "Completed"
         });
 
         transaction.set(notifRef, {
@@ -709,27 +794,30 @@ export default function ProfileSection({ user, onUpdateUser }: ProfileSectionPro
             </h3>
             
             <div className="space-y-3">
-              {[
-                { label: "Bronze", min: "₹0", icon: "🥉", active: true },
-                { label: "Silver", min: "₹10,000", icon: "🛡️", active: (user.totalEarnings || 0) >= 10000 },
-                { label: "Gold", min: "₹50,000", icon: "👑", active: (user.totalEarnings || 0) >= 50000 },
-                { label: "Diamond", min: "₹2,00,000", icon: "💎", active: (user.totalEarnings || 0) >= 200000 },
-              ].map((badgeItem) => (
-                <div
-                  key={badgeItem.label}
-                  className={`flex items-center justify-between p-2 rounded-xl border ${
-                    badgeItem.active
-                      ? "bg-amber-500/[0.02] border-amber-500/20 text-zinc-200"
-                      : "bg-zinc-950/40 border-zinc-900/60 text-zinc-600"
-                  }`}
-                >
-                  <div className="flex items-center space-x-2.5 text-xs font-medium">
-                    <span className={badgeItem.active ? "" : "grayscale"}>{badgeItem.icon}</span>
-                    <span>{badgeItem.label} Badge</span>
+              {(badges.length > 0 ? badges.filter(b => b.status === "Active") : [
+                { id: "bronze", name: "Bronze", minEarnings: 0, icon: "🥉" },
+                { id: "silver", name: "Silver", minEarnings: 10000, icon: "🛡️" },
+                { id: "gold", name: "Gold", minEarnings: 50000, icon: "👑" },
+                { id: "diamond", name: "Diamond", minEarnings: 200000, icon: "💎" }
+              ]).map((badgeItem) => {
+                const isActive = (user.totalEarnings || 0) >= (badgeItem.minEarnings || 0);
+                return (
+                  <div
+                    key={badgeItem.id || badgeItem.name}
+                    className={`flex items-center justify-between p-2 rounded-xl border ${
+                      isActive
+                        ? "bg-amber-500/[0.02] border-amber-500/20 text-zinc-200"
+                        : "bg-zinc-950/40 border-zinc-900/60 text-zinc-600"
+                    }`}
+                  >
+                    <div className="flex items-center space-x-2.5 text-xs font-medium">
+                      <span className={isActive ? "" : "grayscale"}>{badgeItem.icon}</span>
+                      <span>{badgeItem.name} Badge</span>
+                    </div>
+                    <span className="text-[10px] font-mono opacity-80">₹{(badgeItem.minEarnings || 0).toLocaleString("en-IN")}</span>
                   </div>
-                  <span className="text-[10px] font-mono opacity-80">{badgeItem.min}</span>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         </div>
