@@ -242,13 +242,13 @@ export default function Leaderboard({ currentUser }: LeaderboardProps) {
                       {user.profilePic ? (
                         <img
                           src={user.profilePic}
-                          alt={user.username}
+                          alt={user.username || "User"}
                           referrerPolicy="no-referrer"
                           className="w-8.5 h-8.5 rounded-lg object-cover border border-zinc-900"
                         />
                       ) : (
                         <div className="w-8.5 h-8.5 rounded-lg bg-zinc-900 border border-zinc-800 flex items-center justify-center font-display font-bold text-zinc-400 text-xs">
-                          {user.username.charAt(0).toUpperCase()}
+                          {(user.username || "U").charAt(0).toUpperCase()}
                         </div>
                       )}
                       {isMe && (
@@ -261,7 +261,7 @@ export default function Leaderboard({ currentUser }: LeaderboardProps) {
                     <div className="min-w-0">
                       <div className="flex items-center space-x-1.5 min-w-0">
                         <p className={`text-xs font-semibold truncate ${isMe ? "text-amber-400 font-bold" : "text-zinc-200"}`}>
-                          {user.username}
+                          {user.username || "User"}
                         </p>
                         {user.isPremium && (
                           <span className="px-1.5 py-0.5 text-[8px] font-black tracking-wider bg-amber-400 text-slate-950 rounded-xs leading-none shrink-0 animate-pulse">

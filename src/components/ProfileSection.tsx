@@ -449,13 +449,13 @@ export default function ProfileSection({ user, onUpdateUser }: ProfileSectionPro
           {user.profilePic ? (
             <img
               src={user.profilePic}
-              alt={user.username}
+              alt={user.username || "User"}
               className="w-20 h-20 rounded-2xl object-cover border-2 border-zinc-800"
               referrerPolicy="no-referrer"
             />
           ) : (
             <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-zinc-800 to-zinc-950 border-2 border-zinc-800 flex items-center justify-center font-display font-bold text-zinc-300 text-2xl">
-              {user.username.charAt(0).toUpperCase()}
+              {(user.username || "U").charAt(0).toUpperCase()}
             </div>
           )}
 

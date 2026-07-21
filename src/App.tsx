@@ -695,25 +695,25 @@ export default function App() {
                     />
                   ) : (
                     <div className="w-14 h-14 rounded-xl bg-gradient-to-tr from-zinc-800 to-zinc-900 border border-zinc-700/60 flex items-center justify-center font-display font-extrabold text-zinc-300 text-lg">
-                      {currentUser.username.charAt(0).toUpperCase()}
+                      {(currentUser.username || "U").charAt(0).toUpperCase()}
                     </div>
                   )}
                   <div className="font-sans space-y-0.5">
                     <div className="flex items-center space-x-2">
-                      <h2 className="text-base font-display font-bold text-zinc-100">{currentUser.username}</h2>
+                      <h2 className="text-base font-display font-bold text-zinc-100">{currentUser.username || "User"}</h2>
                       <span className="text-[9px] uppercase tracking-widest font-bold bg-amber-500/10 border border-amber-500/30 text-amber-400 px-1.5 py-0.5 rounded-sm">
-                        {currentUser.accountStatus}
+                        {currentUser.accountStatus || "Active"}
                       </span>
                     </div>
                     <p className="text-[10px] text-zinc-500 font-mono">Affiliate User ID: {currentUser.customUserId || currentUser.userId}</p>
-                    <p className="text-[10px] text-zinc-400">Join Date: {currentUser.joinDate}</p>
+                    <p className="text-[10px] text-zinc-400">Join Date: {currentUser.joinDate || "N/A"}</p>
                   </div>
                 </div>
 
                 <div className="flex space-x-3 items-center">
                   <div className="text-center bg-slate-950/65 px-4 py-2 rounded-xl border border-zinc-900">
                     <span className="text-[8px] uppercase tracking-wider text-zinc-500 font-mono block">Achievement level</span>
-                    <span className="text-xs font-display font-bold text-amber-400">★ {(currentUser.customBadge || currentUser.badge).toUpperCase()} Badge</span>
+                    <span className="text-xs font-display font-bold text-amber-400">★ {(currentUser.customBadge || currentUser.badge || "Bronze").toUpperCase()} Badge</span>
                   </div>
                   {(currentUser as any).customRank && (
                     <div className="text-center bg-slate-950/65 px-4 py-2 rounded-xl border border-zinc-900">
