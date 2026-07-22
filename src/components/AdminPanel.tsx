@@ -7,6 +7,7 @@ import { Users, CreditCard, ShieldCheck, Megaphone, Terminal, Search, UserPlus, 
 import AnimatedCounter from "./AnimatedCounter";
 import { jsPDF } from "jspdf";
 import MultiSelect from "./MultiSelect";
+import { hashPin } from "../utils/pin";
 
 interface AdminPanelProps {
   adminUser: UserProfile;
@@ -256,6 +257,12 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
   const [founderRevenueWallet, setFounderRevenueWallet] = useState<{ currentBalance: number; totalLifetimeRevenue: number } | null>(null);
   const [revenueSearch, setRevenueSearch] = useState("");
   const [revenueFilter, setRevenueFilter] = useState("All");
+  const [revenueSubTab, setRevenueSubTab] = useState<"total" | "normal_withdrawal" | "fast_withdrawal" | "challenge" | "membership" | "service">("total");
+  const [showTransferModal, setShowTransferModal] = useState(false);
+  const [transferPinInput, setTransferPinInput] = useState("");
+  const [showTransferPin, setShowTransferPin] = useState(false);
+  const [transferPinError, setTransferPinError] = useState("");
+  const [isTransferringRevenue, setIsTransferringRevenue] = useState(false);
 
   // --- SERVICES ADMIN STATES ---
   const [adminServices, setAdminServices] = useState<Service[]>([]);
@@ -4867,73 +4874,181 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
           return new Date(timestamp);
         };
 
-        // Calculate dynamic revenue category totals and time-based metrics
+        // Extract last transfer timestamp (if revenue was previously transferred to Founder Wallet)
+        const lastTransferTs = (revenueData as any)?.lastTransferTimestamp;
+        let lastTransferMs = 0;
+        if (lastTransferTs) {
+          if (typeof lastTransferTs.toDate === "function") lastTransferMs = lastTransferTs.toDate().getTime();
+          else if (lastTransferTs.seconds) lastTransferMs = lastTransferTs.seconds * 1000;
+          else if (typeof lastTransferTs === "number") lastTransferMs = lastTransferTs;
+          else if (lastTransferTs) lastTransferMs = new Date(lastTransferTs).getTime() || 0;
+        }
+
+        // Calculate untransferred available platform revenue for the 5 sources
+        let normalWithdrawalFees = 0;
+        let fastWithdrawalFees = 0;
+        let challengeFees = 0;
         let membershipRevenue = 0;
         let serviceRevenue = 0;
-        let withdrawalFeeRevenue = 0;
-        let platformFeeRevenue = 0;
-        let otherRevenue = 0;
-        let totalAdCost = 0;
 
-        let todayRevenue = 0;
-        let sevenDaysRevenue = 0;
-        let thirtyDaysRevenue = 0;
-
-        const nowMs = Date.now();
-        const todayStartMs = new Date().setHours(0, 0, 0, 0);
-        const sevenDaysMs = nowMs - 7 * 24 * 60 * 60 * 1000;
-        const thirtyDaysMs = nowMs - 30 * 24 * 60 * 60 * 1000;
-
-        revenueTransactions.forEach(tx => {
+        (revenueTransactions as any[]).forEach((tx: any) => {
           const amount = Number(tx.amount) || 0;
+          if (amount <= 0) return;
+
           const txDate = getTxDate(tx.timestamp, tx.manualDate);
           const txMs = txDate.getTime();
 
-          if (tx.type === "ad_cost") {
-            totalAdCost += amount;
-          } else {
-            // Group incoming revenues
-            if (tx.type === "premium_purchase" || tx.type === "membership_purchase") {
-              membershipRevenue += amount;
-            } else if (tx.type === "service_purchase") {
-              serviceRevenue += amount;
-            } else if (tx.type === "withdrawal_fee" || tx.type === "fast_withdrawal_fee") {
-              withdrawalFeeRevenue += amount;
-            } else if (tx.type === "platform_fee" || tx.type === "challenge_entry") {
-              platformFeeRevenue += amount;
-            } else {
-              otherRevenue += amount;
-            }
+          // Exclude transactions that occurred before or at the last Founder transfer
+          if (lastTransferMs > 0 && txMs <= lastTransferMs) {
+            return;
+          }
 
-            // Accumulate incoming time ranges
-            if (txMs >= todayStartMs) {
-              todayRevenue += amount;
-            }
-            if (txMs >= sevenDaysMs) {
-              sevenDaysRevenue += amount;
-            }
-            if (txMs >= thirtyDaysMs) {
-              thirtyDaysRevenue += amount;
-            }
+          const t = (tx.type || "").toLowerCase();
+          const r = (tx.revenueType || "").toLowerCase();
+          const s = (tx.source || "").toLowerCase();
+          const title = (tx.title || "").toLowerCase();
+          const desc = (tx.description || "").toLowerCase();
+
+          // Categorize into the 5 revenue sources
+          if (t === "fast_withdrawal_fee" || r === "fast withdrawal fee" || (s.includes("fast") && s.includes("withdrawal")) || (desc.includes("fast") && desc.includes("withdrawal")) || (title.includes("fast") && title.includes("withdrawal"))) {
+            fastWithdrawalFees += amount;
+          } else if (t === "withdrawal_fee" || t === "normal_withdrawal_fee" || t === "withdrawal_fee_svc" || t === "withdrawal_fee_gst" || r.includes("withdrawal") || s.includes("withdrawal") || desc.includes("withdrawal")) {
+            normalWithdrawalFees += amount;
+          } else if (t === "challenge_entry" || t === "challenge_fee" || t === "challenge_entry_fee" || r.includes("challenge") || s.includes("challenge") || desc.includes("challenge") || title.includes("challenge")) {
+            challengeFees += amount;
+          } else if (t === "membership_purchase" || t === "premium_purchase" || t.includes("membership") || r.includes("membership") || s.includes("membership") || desc.includes("membership") || title.includes("membership") || title.includes("vip") || title.includes("plan")) {
+            membershipRevenue += amount;
+          } else if (t === "service_purchase" || t === "service_charge" || t.includes("service") || r.includes("service") || s.includes("service") || desc.includes("service") || title.includes("service")) {
+            serviceRevenue += amount;
+          } else {
+            serviceRevenue += amount;
           }
         });
 
-        const totalPlatformRevenue = membershipRevenue + serviceRevenue + withdrawalFeeRevenue + platformFeeRevenue + otherRevenue;
+        // Total Revenue automatically equals sum of the 5 categories
+        const totalRevenue = normalWithdrawalFees + fastWithdrawalFees + challengeFees + membershipRevenue + serviceRevenue;
 
-        // Calculate user payouts
-        const totalUserPayout = withdrawals
-          .filter(w => w.status === "Completed")
-          .reduce((acc, w) => acc + (w.withdrawalAmount || 0), 0);
+        // Find founder wallet balance
+        const founderUser = (users as any[]).find((u: any) => u.role === "founder") || adminUser;
+        const founderWalletBalance = Number((founderUser as any)?.walletBalance) || 0;
 
-        const totalPendingPayout = withdrawals
-          .filter(w => w.status === "Pending" || w.status === "Approved")
-          .reduce((acc, w) => acc + (w.withdrawalAmount || 0), 0);
+        // Founder Revenue Transfer Handler
+        const handleConfirmTransferRevenue = async (e: React.FormEvent) => {
+          e.preventDefault();
+          if (isTransferringRevenue) return;
 
-        const netProfitLoss = totalPlatformRevenue - totalAdCost - totalUserPayout;
+          setTransferPinError("");
 
-        // Find founder wallet balance from users list
-        const founderUser = (users as any[]).find(u => u.role === "founder") || adminUser;
-        const founderWalletBalance = (founderUser as any)?.walletBalance || 0;
+          if (!transferPinInput.trim()) {
+            setTransferPinError("Please enter your Founder Wallet PIN.");
+            return;
+          }
+
+          if (adminUser.role !== "founder") {
+            setTransferPinError("Only Founder can perform this action.");
+            return;
+          }
+
+          const hashedInput = await hashPin(transferPinInput.trim());
+          const expectedHash = (founderUser as any)?.walletPinHash || adminUser.walletPinHash;
+
+          if (!expectedHash) {
+            setTransferPinError("Wallet PIN is not configured. Please set up your Wallet PIN in Profile settings first.");
+            return;
+          }
+
+          if (hashedInput !== expectedHash) {
+            setTransferPinError("Incorrect Wallet PIN");
+            return;
+          }
+
+          if (totalRevenue <= 0) {
+            setTransferPinError("Total Revenue is ₹0. No revenue available to transfer.");
+            return;
+          }
+
+          setIsTransferringRevenue(true);
+
+          try {
+            const founderUserId = (founderUser as any)?.userId || adminUser.userId;
+            const founderUserRef = doc(db, "users", founderUserId);
+            const revenueSettingsRef = doc(db, "settings", "revenue");
+            const founderWalletSettingsRef = doc(db, "settings", "founderRevenueWallet");
+
+            await runTransaction(db, async (transaction) => {
+              const founderSnap = await transaction.get(founderUserRef);
+              if (!founderSnap.exists()) {
+                throw new Error("Founder account not found in database.");
+              }
+
+              const currentFounderBal = Number(founderSnap.data()?.walletBalance) || 0;
+              const amountToTransfer = totalRevenue;
+              const updatedFounderBal = currentFounderBal + amountToTransfer;
+              const transferId = `TRF-${Date.now()}`;
+              const currentDate = new Date().toLocaleDateString("en-IN");
+              const currentTime = new Date().toLocaleTimeString("en-IN");
+
+              // 1. Credit Founder User Wallet Balance
+              transaction.update(founderUserRef, {
+                walletBalance: updatedFounderBal,
+              });
+
+              // 2. Update Founder Revenue Wallet Settings
+              transaction.set(founderWalletSettingsRef, {
+                currentBalance: updatedFounderBal,
+                totalLifetimeRevenue: ((founderRevenueWallet?.totalLifetimeRevenue || 0) + amountToTransfer),
+                lastTransferId: transferId,
+                lastTransferAmount: amountToTransfer,
+                lastTransferAt: serverTimestamp(),
+                updatedAt: serverTimestamp(),
+              }, { merge: true });
+
+              // 3. Reset Platform Revenue totals and update lastTransferTimestamp
+              transaction.set(revenueSettingsRef, {
+                lastTransferTimestamp: serverTimestamp(),
+                lastTransferId: transferId,
+                lastTransferredAmount: amountToTransfer,
+                normalWithdrawalFees: 0,
+                fastWithdrawalFees: 0,
+                challengeFees: 0,
+                membershipRevenue: 0,
+                serviceRevenue: 0,
+                totalRevenue: 0,
+                updatedAt: serverTimestamp(),
+              }, { merge: true });
+
+              // 4. Record in Audit Logs / Founder History
+              const auditRef = doc(collection(db, "auditLogs"));
+              transaction.set(auditRef, {
+                transferId,
+                adminName: adminUser.username,
+                adminId: adminUser.userId,
+                action: "Transfer Revenue to Founder Wallet",
+                targetUser: "Founder Wallet",
+                amount: amountToTransfer,
+                transferredBy: adminUser.username,
+                previousRevenue: amountToTransfer,
+                currentRevenue: 0,
+                previousWalletBalance: currentFounderBal,
+                updatedWalletBalance: updatedFounderBal,
+                description: `Revenue Transfer [${transferId}]: Transferred ₹${amountToTransfer.toLocaleString("en-IN")} to Founder Wallet. (Previous Revenue: ₹${amountToTransfer.toLocaleString("en-IN")}, Current Revenue: ₹0 | Previous Wallet Balance: ₹${currentFounderBal.toLocaleString("en-IN")}, Updated Wallet Balance: ₹${updatedFounderBal.toLocaleString("en-IN")})`,
+                date: currentDate,
+                time: currentTime,
+                ip: "127.0.0.1",
+                timestamp: serverTimestamp(),
+              });
+            });
+
+            setShowTransferModal(false);
+            setTransferPinInput("");
+            alert(`Successfully transferred ₹${totalRevenue.toLocaleString("en-IN")} to Founder Wallet! Total Revenue reset to ₹0.`);
+          } catch (err: any) {
+            console.error("Revenue transfer error:", err);
+            setTransferPinError(err.message || "Failed to transfer revenue. Please try again.");
+          } finally {
+            setIsTransferringRevenue(false);
+          }
+        };
 
         const now = new Date();
         const todayStartMsMetrics = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
@@ -5240,409 +5355,314 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
 
         return (
           <div className="space-y-6 animate-fade-in font-sans">
-            {/* 🔝 MAIN REVENUE DASHBOARD HEADER & HERO */}
-            <div className="p-6 rounded-2xl bg-zinc-900/40 border border-zinc-800 flex flex-col md:flex-row md:items-center justify-between gap-6">
+            {/* TOP TITLE HEADER */}
+            <div className="p-6 rounded-2xl bg-zinc-950 border border-zinc-800 flex flex-col md:flex-row md:items-center justify-between gap-4">
               <div>
-                <h2 className="text-lg font-display font-bold text-zinc-100 uppercase tracking-widest flex items-center space-x-3">
-                  <Coins className="w-6 h-6 text-amber-500 animate-pulse" />
-                  <span>Platform Revenue & Financial Systems</span>
+                <h2 className="text-base font-display font-bold text-zinc-100 uppercase tracking-widest flex items-center space-x-2.5">
+                  <Coins className="w-5 h-5 text-amber-500" />
+                  <span>Revenue Analytics</span>
                 </h2>
-                <p className="text-xs text-zinc-400 mt-1">Real-time ledger audit, split tax tracking, automated founder revenue wallets, and compliance export logs.</p>
-              </div>
-              <div className="flex items-center space-x-3">
-                <button
-                  onClick={handleExportPDF}
-                  className="px-4 py-2 bg-zinc-850 hover:bg-zinc-800 border border-zinc-700 text-zinc-200 text-xs font-semibold rounded-xl flex items-center space-x-2 transition-all cursor-pointer"
-                >
-                  <Download className="w-3.5 h-3.5 text-zinc-400" />
-                  <span>Export Financial Ledger</span>
-                </button>
-              </div>
-            </div>
-
-            {/* 📊 SUMMARY CARDS (BENTO STYLE) */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-4">
-              {/* Founder Wallet Balance Card */}
-              <div className="p-4 rounded-xl bg-gradient-to-br from-amber-500/10 via-zinc-900/30 to-zinc-900/40 border border-amber-500/30 space-y-2 relative overflow-hidden group">
-                <div className="absolute top-0 right-0 w-24 h-24 bg-amber-500/5 rounded-full blur-2xl group-hover:bg-amber-500/10 transition-all duration-500"></div>
-                <div className="flex items-center space-x-2 text-amber-400">
-                  <Wallet className="w-4 h-4" />
-                  <span className="text-[10px] font-bold uppercase tracking-wider">Founder Balance</span>
-                </div>
-                <div className="space-y-0.5">
-                  <p className="text-xl font-mono font-bold text-amber-300">
-                    ₹{(founderRevenueWallet?.currentBalance ?? 0).toLocaleString("en-IN")}
-                  </p>
-                  <p className="text-[9px] text-zinc-400">Available Wallet Reserve</p>
-                </div>
+                <p className="text-xs text-zinc-400 mt-1">
+                  Real-time platform earnings tracking across 5 core sources with Founder Wallet transfer capability.
+                </p>
               </div>
 
-              {/* Lifetime Founder Revenue Card */}
-              <div className="p-4 rounded-xl bg-gradient-to-br from-teal-500/10 via-zinc-900/30 to-zinc-900/40 border border-teal-500/30 space-y-2 relative overflow-hidden group">
-                <div className="absolute top-0 right-0 w-24 h-24 bg-teal-500/5 rounded-full blur-2xl group-hover:bg-teal-500/10 transition-all duration-500"></div>
-                <div className="flex items-center space-x-2 text-teal-400">
-                  <TrendingUp className="w-4 h-4" />
-                  <span className="text-[10px] font-bold uppercase tracking-wider">Founder Lifetime</span>
-                </div>
-                <div className="space-y-0.5">
-                  <p className="text-xl font-mono font-bold text-teal-300">
-                    ₹{(founderRevenueWallet?.totalLifetimeRevenue ?? 0).toLocaleString("en-IN")}
-                  </p>
-                  <p className="text-[9px] text-zinc-400">Total Founder Intake</p>
-                </div>
-              </div>
-
-              {/* Membership Revenue Card */}
-              <div className="p-4 rounded-xl bg-zinc-900/30 border border-zinc-800 space-y-2 relative overflow-hidden">
-                <div className="flex items-center space-x-2 text-purple-400">
-                  <CreditCard className="w-4 h-4" />
-                  <span className="text-[10px] font-bold uppercase tracking-wider">Membership Revenue</span>
-                </div>
-                <div className="space-y-0.5">
-                  <p className="text-lg font-mono font-bold text-purple-300">
-                    ₹{membershipMetrics.lifetime.toLocaleString("en-IN")}
-                  </p>
-                  <p className="text-[9px] text-zinc-500">Subscription gross</p>
-                </div>
-              </div>
-
-              {/* Service Revenue Card */}
-              <div className="p-4 rounded-xl bg-zinc-900/30 border border-zinc-800 space-y-2 relative overflow-hidden">
-                <div className="flex items-center space-x-2 text-blue-400">
-                  <Sparkles className="w-4 h-4" />
-                  <span className="text-[10px] font-bold uppercase tracking-wider">Service Revenue</span>
-                </div>
-                <div className="space-y-0.5">
-                  <p className="text-lg font-mono font-bold text-blue-300">
-                    ₹{serviceMetrics.lifetime.toLocaleString("en-IN")}
-                  </p>
-                  <p className="text-[9px] text-zinc-500">Services & Withdraw Fees</p>
-                </div>
-              </div>
-
-              {/* GST Revenue Card */}
-              <div className="p-4 rounded-xl bg-zinc-900/30 border border-zinc-800 space-y-2 relative overflow-hidden">
-                <div className="flex items-center space-x-2 text-emerald-400">
-                  <Landmark className="w-4 h-4" />
-                  <span className="text-[10px] font-bold uppercase tracking-wider">GST / Tax Revenue</span>
-                </div>
-                <div className="space-y-0.5">
-                  <p className="text-lg font-mono font-bold text-emerald-300">
-                    ₹{gstMetrics.lifetime.toLocaleString("en-IN")}
-                  </p>
-                  <p className="text-[9px] text-zinc-500">18% split tax receipts</p>
-                </div>
-              </div>
-
-              {/* Total Gross Platform Revenue Card */}
-              <div className="p-4 rounded-xl bg-gradient-to-br from-indigo-500/10 via-zinc-900/30 to-zinc-900/40 border border-indigo-500/30 space-y-2 relative overflow-hidden group">
-                <div className="absolute top-0 right-0 w-24 h-24 bg-indigo-500/5 rounded-full blur-2xl group-hover:bg-indigo-500/10 transition-all duration-500"></div>
-                <div className="flex items-center space-x-2 text-indigo-400">
-                  <Coins className="w-4 h-4" />
-                  <span className="text-[10px] font-bold uppercase tracking-wider">Gross Platform</span>
-                </div>
-                <div className="space-y-0.5">
-                  <p className="text-xl font-mono font-bold text-indigo-300">
-                    ₹{totalPlatformRevenueSum.toLocaleString("en-IN")}
-                  </p>
-                  <p className="text-[9px] text-zinc-400">Aggregated global intake</p>
+              {/* Founder Wallet Balance Badge */}
+              <div className="bg-zinc-900/80 border border-amber-500/30 px-4 py-2.5 rounded-xl flex items-center space-x-3">
+                <Wallet className="w-4 h-4 text-amber-400" />
+                <div>
+                  <span className="text-[9px] uppercase font-mono tracking-wider text-zinc-400 block font-bold">Founder Wallet Balance</span>
+                  <span className="text-sm font-mono font-bold text-amber-400">₹{founderWalletBalance.toLocaleString("en-IN")}</span>
                 </div>
               </div>
             </div>
 
-            {/* 📈 THREE REVENUE ANALYTICS CATEGORIES */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              {/* Category 1: Membership Revenue */}
-              <div className="bg-zinc-900/15 border border-zinc-850 rounded-2xl p-5 shadow-xl space-y-4">
-                <div className="flex items-center space-x-2 border-b border-zinc-800/60 pb-3">
-                  <div className="p-1.5 rounded-lg bg-purple-500/10 text-purple-400">
-                    <CreditCard className="w-4 h-4" />
-                  </div>
-                  <div>
-                    <h4 className="text-xs font-bold text-zinc-200 uppercase tracking-widest">Membership Revenue</h4>
-                    <p className="text-[10px] text-zinc-500">Plan upgrades and premium packs</p>
-                  </div>
-                </div>
-                
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between text-xs font-mono">
-                    <span className="text-zinc-500">TODAY:</span>
-                    <span className="text-purple-400 font-bold">₹{membershipMetrics.today.toLocaleString("en-IN")}</span>
-                  </div>
-                  <div className="flex items-center justify-between text-xs font-mono">
-                    <span className="text-zinc-500">LAST 7 DAYS:</span>
-                    <span className="text-zinc-300">₹{membershipMetrics.sevenDays.toLocaleString("en-IN")}</span>
-                  </div>
-                  <div className="flex items-center justify-between text-xs font-mono">
-                    <span className="text-zinc-500">LAST 30 DAYS:</span>
-                    <span className="text-zinc-300">₹{membershipMetrics.thirtyDays.toLocaleString("en-IN")}</span>
-                  </div>
-                  <div className="flex items-center justify-between text-xs font-mono border-t border-zinc-800/40 pt-2">
-                    <span className="text-zinc-400 font-sans font-semibold">LIFETIME REVENUE:</span>
-                    <span className="text-purple-300 font-bold">₹{membershipMetrics.lifetime.toLocaleString("en-IN")}</span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Category 2: Service Revenue */}
-              <div className="bg-zinc-900/15 border border-zinc-850 rounded-2xl p-5 shadow-xl space-y-4">
-                <div className="flex items-center space-x-2 border-b border-zinc-800/60 pb-3">
-                  <div className="p-1.5 rounded-lg bg-blue-500/10 text-blue-400">
-                    <Sparkles className="w-4 h-4" />
-                  </div>
-                  <div>
-                    <h4 className="text-xs font-bold text-zinc-200 uppercase tracking-widest">Service Revenue</h4>
-                    <p className="text-[10px] text-zinc-500">Marketplace gigs & withdrawal charges</p>
-                  </div>
-                </div>
-
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between text-xs font-mono">
-                    <span className="text-zinc-500">TODAY:</span>
-                    <span className="text-blue-400 font-bold">₹{serviceMetrics.today.toLocaleString("en-IN")}</span>
-                  </div>
-                  <div className="flex items-center justify-between text-xs font-mono">
-                    <span className="text-zinc-500">LAST 7 DAYS:</span>
-                    <span className="text-zinc-300">₹{serviceMetrics.sevenDays.toLocaleString("en-IN")}</span>
-                  </div>
-                  <div className="flex items-center justify-between text-xs font-mono">
-                    <span className="text-zinc-500">LAST 30 DAYS:</span>
-                    <span className="text-zinc-300">₹{serviceMetrics.thirtyDays.toLocaleString("en-IN")}</span>
-                  </div>
-                  <div className="flex items-center justify-between text-xs font-mono border-t border-zinc-800/40 pt-2">
-                    <span className="text-zinc-400 font-sans font-semibold">LIFETIME REVENUE:</span>
-                    <span className="text-blue-300 font-bold">₹{serviceMetrics.lifetime.toLocaleString("en-IN")}</span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Category 3: GST / Tax Revenue */}
-              <div className="bg-zinc-900/15 border border-zinc-850 rounded-2xl p-5 shadow-xl space-y-4">
-                <div className="flex items-center space-x-2 border-b border-zinc-800/60 pb-3">
-                  <div className="p-1.5 rounded-lg bg-emerald-500/10 text-emerald-400">
-                    <Landmark className="w-4 h-4" />
-                  </div>
-                  <div>
-                    <h4 className="text-xs font-bold text-zinc-200 uppercase tracking-widest">GST / Tax Revenue</h4>
-                    <p className="text-[10px] text-zinc-500">18% inclusive GST from transactions</p>
-                  </div>
-                </div>
-
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between text-xs font-mono">
-                    <span className="text-zinc-500">TODAY:</span>
-                    <span className="text-emerald-400 font-bold">₹{gstMetrics.today.toLocaleString("en-IN")}</span>
-                  </div>
-                  <div className="flex items-center justify-between text-xs font-mono">
-                    <span className="text-zinc-500">LAST 7 DAYS:</span>
-                    <span className="text-zinc-300">₹{gstMetrics.sevenDays.toLocaleString("en-IN")}</span>
-                  </div>
-                  <div className="flex items-center justify-between text-xs font-mono">
-                    <span className="text-zinc-500">LAST 30 DAYS:</span>
-                    <span className="text-zinc-300">₹{gstMetrics.thirtyDays.toLocaleString("en-IN")}</span>
-                  </div>
-                  <div className="flex items-center justify-between text-xs font-mono border-t border-zinc-800/40 pt-2">
-                    <span className="text-zinc-400 font-sans font-semibold">LIFETIME REVENUE:</span>
-                    <span className="text-emerald-300 font-bold">₹{gstMetrics.lifetime.toLocaleString("en-IN")}</span>
-                  </div>
-                </div>
-              </div>
+            {/* 6 REVENUE SUB-TABS */}
+            <div className="flex flex-wrap items-center gap-2 border-b border-zinc-800 pb-3">
+              {[
+                { id: "total", label: "Total Revenue", amount: totalRevenue },
+                { id: "normal_withdrawal", label: "Withdrawal Fees", amount: normalWithdrawalFees },
+                { id: "fast_withdrawal", label: "Fast Withdrawal Fees", amount: fastWithdrawalFees },
+                { id: "challenge", label: "Challenge Fees", amount: challengeFees },
+                { id: "membership", label: "Membership Revenue", amount: membershipRevenue },
+                { id: "service", label: "Service Revenue", amount: serviceRevenue },
+              ].map((tab) => {
+                const isActive = revenueSubTab === tab.id;
+                return (
+                  <button
+                    key={tab.id}
+                    onClick={() => setRevenueSubTab(tab.id as any)}
+                    className={`px-4 py-2 rounded-xl text-xs font-semibold font-sans transition-all flex items-center space-x-2 cursor-pointer ${
+                      isActive
+                        ? "bg-amber-500 text-slate-950 shadow-md font-bold"
+                        : "bg-zinc-900/60 hover:bg-zinc-850 text-zinc-300 border border-zinc-800"
+                    }`}
+                  >
+                    <span>{tab.label}</span>
+                    <span className={`text-[10px] font-mono font-bold px-1.5 py-0.5 rounded ${
+                      isActive ? "bg-slate-950/20 text-slate-950" : "bg-zinc-800 text-amber-400"
+                    }`}>
+                      ₹{tab.amount.toLocaleString("en-IN")}
+                    </span>
+                  </button>
+                );
+              })}
             </div>
 
-            {/* 📝 MANUAL ENTRY & REVENUE HISTORY SECTION */}
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-              {/* Form: Record Manual Revenue */}
-              <div className="lg:col-span-4 bg-zinc-950/20 border border-zinc-850 rounded-2xl p-5 shadow-xl space-y-4">
-                <div className="border-b border-zinc-800 pb-2">
-                  <h3 className="text-xs font-display font-bold text-zinc-100 uppercase tracking-widest flex items-center space-x-2">
-                    <PlusCircle className="w-4.5 h-4.5 text-teal-400" />
-                    <span>Record Manual Entry</span>
-                  </h3>
-                  <p className="text-[10px] text-zinc-400 mt-1">Directly log offline income, software licenses, or marketing expenses.</p>
-                </div>
+            {/* SUB-TAB CONTENTS */}
 
-                <form onSubmit={handleRecordManualEntry} className="space-y-3">
-                  <div>
-                    <label className="block text-[9px] text-zinc-400 uppercase font-mono mb-1">Entry Title *</label>
-                    <input
-                      type="text"
-                      name="manual_title"
-                      required
-                      placeholder="e.g. YouTube Promo Ad"
-                      className="w-full bg-slate-950 border border-zinc-800 rounded-xl py-1.5 px-3 text-xs text-zinc-300 font-sans"
-                    />
-                  </div>
+            {/* TAB 1: TOTAL REVENUE */}
+            {revenueSubTab === "total" && (
+              <div className="space-y-6">
+                {/* LARGE TOTAL REVENUE CARD */}
+                <div className="bg-gradient-to-br from-zinc-950 via-zinc-900 to-black border-2 border-amber-500/40 p-8 rounded-3xl shadow-2xl relative overflow-hidden space-y-6">
+                  <div className="absolute top-0 right-0 w-64 h-64 bg-amber-500/10 rounded-full blur-3xl pointer-events-none"></div>
 
-                  <div>
-                    <label className="block text-[9px] text-zinc-400 uppercase font-mono mb-1">Transaction Type</label>
-                    <select
-                      name="manual_category"
-                      className="w-full bg-slate-950 border border-zinc-800 rounded-xl py-1.5 px-3 text-xs text-zinc-300 font-sans"
-                    >
-                      <option value="membership_purchase">Membership Revenue</option>
-                      <option value="service_purchase">Service Revenue</option>
-                      <option value="ad_cost">Expenses (Ad Cost/Software)</option>
-                    </select>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-[9px] text-zinc-400 uppercase font-mono mb-1">Amount (₹) *</label>
-                      <input
-                        type="number"
-                        name="manual_amount"
-                        required
-                        placeholder="e.g. 1500"
-                        className="w-full bg-slate-950 border border-zinc-800 rounded-xl py-1.5 px-3 text-xs text-zinc-300 font-mono"
-                      />
+                  <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 relative z-10">
+                    <div className="space-y-2">
+                      <span className="text-xs font-mono font-bold text-amber-400 uppercase tracking-widest flex items-center space-x-2">
+                        <Sparkles className="w-4 h-4" />
+                        <span>Total Available Platform Revenue</span>
+                      </span>
+                      <div className="text-4xl md:text-5xl font-mono font-black text-amber-300 tracking-tight">
+                        ₹{totalRevenue.toLocaleString("en-IN")}
+                      </div>
+                      <p className="text-xs text-zinc-400">
+                        Sum of Withdrawal Fees + Fast Withdrawal Fees + Challenge Fees + Membership Revenue + Service Revenue.
+                      </p>
                     </div>
-                    <div>
-                      <label className="block text-[9px] text-zinc-400 uppercase font-mono mb-1">Date</label>
-                      <input
-                        type="date"
-                        name="manual_date"
-                        defaultValue={new Date().toISOString().split("T")[0]}
-                        className="w-full bg-slate-950 border border-zinc-800 rounded-xl py-1.5 px-3 text-xs text-zinc-300 font-mono"
-                      />
-                    </div>
-                  </div>
 
-                  <div>
-                    <label className="block text-[9px] text-zinc-400 uppercase font-mono mb-1">Remarks / Particulars</label>
-                    <textarea
-                      name="manual_desc"
-                      rows={2}
-                      placeholder="Details, bill ref numbers..."
-                      className="w-full bg-slate-950 border border-zinc-800 rounded-xl py-1.5 px-3 text-xs text-zinc-300"
-                    />
-                  </div>
-
-                  <div className="pt-2">
-                    <button
-                      type="submit"
-                      disabled={actionLoading === "record_manual_income"}
-                      className="w-full py-2 bg-gradient-to-r from-teal-500 to-emerald-500 hover:from-teal-600 hover:to-emerald-600 text-slate-950 font-bold text-xs rounded-xl shadow-md flex items-center justify-center space-x-1.5 transition-all cursor-pointer"
-                    >
-                      {actionLoading === "record_manual_income" ? (
-                        <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                      ) : (
-                        <Save className="w-3.5 h-3.5" />
+                    {/* TRANSFER REVENUE BUTTON */}
+                    <div className="flex flex-col items-start md:items-end space-y-2">
+                      <button
+                        onClick={() => {
+                          if (adminUser.role !== "founder") {
+                            alert("Only Founder can perform this action. Co-Founder and Admin cannot access this feature.");
+                            return;
+                          }
+                          if (totalRevenue <= 0) {
+                            alert("Total Revenue is ₹0. No revenue available to transfer.");
+                            return;
+                          }
+                          setTransferPinInput("");
+                          setTransferPinError("");
+                          setShowTransferModal(true);
+                        }}
+                        disabled={adminUser.role !== "founder" || totalRevenue <= 0}
+                        className={`px-6 py-3.5 rounded-2xl font-bold text-xs uppercase tracking-wider transition-all duration-300 flex items-center space-x-2.5 shadow-lg ${
+                          adminUser.role === "founder" && totalRevenue > 0
+                            ? "bg-gradient-to-r from-amber-500 via-amber-400 to-yellow-500 hover:from-amber-600 hover:to-yellow-600 text-slate-950 shadow-amber-500/20 cursor-pointer active:scale-95"
+                            : "bg-zinc-850 text-zinc-500 border border-zinc-800 opacity-60 cursor-not-allowed"
+                        }`}
+                      >
+                        <Wallet className="w-4.5 h-4.5" />
+                        <span>Transfer Revenue to Founder Wallet</span>
+                      </button>
+                      {adminUser.role !== "founder" && (
+                        <span className="text-[10px] text-red-400 font-mono">
+                          🔒 Only Founder account can execute revenue transfers.
+                        </span>
                       )}
-                      <span>Commit Manual Entry</span>
+                      {adminUser.role === "founder" && totalRevenue === 0 && (
+                        <span className="text-[10px] text-zinc-500 font-mono">
+                          Available revenue is ₹0. Transfers unlock when platform earns revenue.
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* 5 CATEGORY BREAKDOWN CARDS */}
+                <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-4">
+                  <div className="bg-zinc-950/80 border border-zinc-800/80 p-5 rounded-2xl space-y-2 hover:border-zinc-700 transition-all">
+                    <span className="text-[10px] font-mono uppercase text-zinc-400 font-bold block">1. Withdrawal Fees</span>
+                    <div className="text-xl font-mono font-bold text-zinc-100">₹{normalWithdrawalFees.toLocaleString("en-IN")}</div>
+                    <p className="text-[10px] text-zinc-500">Standard payout charges</p>
+                  </div>
+
+                  <div className="bg-zinc-950/80 border border-zinc-800/80 p-5 rounded-2xl space-y-2 hover:border-zinc-700 transition-all">
+                    <span className="text-[10px] font-mono uppercase text-zinc-400 font-bold block">2. Fast Withdrawal Fees</span>
+                    <div className="text-xl font-mono font-bold text-amber-400">₹{fastWithdrawalFees.toLocaleString("en-IN")}</div>
+                    <p className="text-[10px] text-zinc-500">Express processing charges</p>
+                  </div>
+
+                  <div className="bg-zinc-950/80 border border-zinc-800/80 p-5 rounded-2xl space-y-2 hover:border-zinc-700 transition-all">
+                    <span className="text-[10px] font-mono uppercase text-zinc-400 font-bold block">3. Challenge Fees</span>
+                    <div className="text-xl font-mono font-bold text-emerald-400">₹{challengeFees.toLocaleString("en-IN")}</div>
+                    <p className="text-[10px] text-zinc-500">User challenge entry fees</p>
+                  </div>
+
+                  <div className="bg-zinc-950/80 border border-zinc-800/80 p-5 rounded-2xl space-y-2 hover:border-zinc-700 transition-all">
+                    <span className="text-[10px] font-mono uppercase text-zinc-400 font-bold block">4. Membership Revenue</span>
+                    <div className="text-xl font-mono font-bold text-purple-400">₹{membershipRevenue.toLocaleString("en-IN")}</div>
+                    <p className="text-[10px] text-zinc-500">Membership plan purchases</p>
+                  </div>
+
+                  <div className="bg-zinc-950/80 border border-zinc-800/80 p-5 rounded-2xl space-y-2 hover:border-zinc-700 transition-all">
+                    <span className="text-[10px] font-mono uppercase text-zinc-400 font-bold block">5. Service Charges</span>
+                    <div className="text-xl font-mono font-bold text-blue-400">₹{serviceRevenue.toLocaleString("en-IN")}</div>
+                    <p className="text-[10px] text-zinc-500">Marketplace service sales</p>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* INDIVIDUAL CATEGORY DETAILS TABS */}
+            {revenueSubTab === "normal_withdrawal" && (
+              <div className="bg-zinc-950/80 border border-zinc-800 p-8 rounded-2xl space-y-3 max-w-xl">
+                <h3 className="text-sm font-bold text-zinc-200 uppercase font-mono tracking-wider">Withdrawal Fees</h3>
+                <div className="text-4xl font-mono font-black text-amber-400">₹{normalWithdrawalFees.toLocaleString("en-IN")}</div>
+                <p className="text-xs text-zinc-400 leading-relaxed">
+                  Total revenue earned from standard withdrawal request processing fees. Automatically resets to ₹0 when transferred to Founder Wallet.
+                </p>
+              </div>
+            )}
+
+            {revenueSubTab === "fast_withdrawal" && (
+              <div className="bg-zinc-950/80 border border-zinc-800 p-8 rounded-2xl space-y-3 max-w-xl">
+                <h3 className="text-sm font-bold text-zinc-200 uppercase font-mono tracking-wider">Fast Withdrawal Fees</h3>
+                <div className="text-4xl font-mono font-black text-amber-400">₹{fastWithdrawalFees.toLocaleString("en-IN")}</div>
+                <p className="text-xs text-zinc-400 leading-relaxed">
+                  Total revenue earned from express/fast withdrawal charges. Automatically resets to ₹0 when transferred to Founder Wallet.
+                </p>
+              </div>
+            )}
+
+            {revenueSubTab === "challenge" && (
+              <div className="bg-zinc-950/80 border border-zinc-800 p-8 rounded-2xl space-y-3 max-w-xl">
+                <h3 className="text-sm font-bold text-zinc-200 uppercase font-mono tracking-wider">Challenge Fees</h3>
+                <div className="text-4xl font-mono font-black text-emerald-400">₹{challengeFees.toLocaleString("en-IN")}</div>
+                <p className="text-xs text-zinc-400 leading-relaxed">
+                  Total revenue collected from user entry fees for platform challenges. Automatically resets to ₹0 when transferred to Founder Wallet.
+                </p>
+              </div>
+            )}
+
+            {revenueSubTab === "membership" && (
+              <div className="bg-zinc-950/80 border border-zinc-800 p-8 rounded-2xl space-y-3 max-w-xl">
+                <h3 className="text-sm font-bold text-zinc-200 uppercase font-mono tracking-wider">Membership Revenue</h3>
+                <div className="text-4xl font-mono font-black text-purple-400">₹{membershipRevenue.toLocaleString("en-IN")}</div>
+                <p className="text-xs text-zinc-400 leading-relaxed">
+                  Total revenue earned from membership plan upgrades and subscription purchases. Automatically resets to ₹0 when transferred to Founder Wallet.
+                </p>
+              </div>
+            )}
+
+            {revenueSubTab === "service" && (
+              <div className="bg-zinc-950/80 border border-zinc-800 p-8 rounded-2xl space-y-3 max-w-xl">
+                <h3 className="text-sm font-bold text-zinc-200 uppercase font-mono tracking-wider">Service Revenue</h3>
+                <div className="text-4xl font-mono font-black text-blue-400">₹{serviceRevenue.toLocaleString("en-IN")}</div>
+                <p className="text-xs text-zinc-400 leading-relaxed">
+                  Total revenue generated from marketplace service purchases and charges. Automatically resets to ₹0 when transferred to Founder Wallet.
+                </p>
+              </div>
+            )}
+
+            {/* SECURE TRANSFER MODAL POPUP */}
+            {showTransferModal && (
+              <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
+                <div className="bg-zinc-950 border border-zinc-800 w-full max-w-md rounded-2xl p-6 space-y-6 shadow-2xl relative animate-scale-up">
+                  <div className="flex items-center justify-between border-b border-zinc-800/80 pb-4">
+                    <div className="flex items-center space-x-2 text-amber-400">
+                      <Lock className="w-5 h-5" />
+                      <h3 className="text-sm font-mono font-bold uppercase tracking-wider text-zinc-100">
+                        Transfer to Founder Wallet
+                      </h3>
+                    </div>
+                    <button
+                      onClick={() => setShowTransferModal(false)}
+                      className="p-1 hover:bg-zinc-900 text-zinc-400 hover:text-zinc-200 rounded-lg transition-colors cursor-pointer"
+                    >
+                      <X className="w-5 h-5" />
                     </button>
                   </div>
-                </form>
-              </div>
 
-              {/* Table: Revenue History Ledger */}
-              <div className="lg:col-span-8 bg-zinc-950/20 border border-zinc-850 rounded-2xl p-5 shadow-xl space-y-4">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-zinc-800 pb-3">
-                  <div>
-                    <h3 className="text-xs font-display font-bold text-zinc-100 uppercase tracking-widest flex items-center space-x-2">
-                      <Terminal className="w-4.5 h-4.5 text-amber-500" />
-                      <span>Ledger & History</span>
-                    </h3>
-                    <p className="text-[10px] text-zinc-400 mt-1">Real-time captured revenue streams and split tax ledger accounts.</p>
+                  {/* Transfer Breakdown Preview */}
+                  <div className="bg-zinc-900/60 border border-zinc-850 p-4 rounded-xl space-y-2 text-xs font-mono">
+                    <div className="flex justify-between">
+                      <span className="text-zinc-400">Transferring Total Revenue:</span>
+                      <span className="text-amber-400 font-bold">₹{totalRevenue.toLocaleString("en-IN")}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-zinc-400">Target Founder Wallet:</span>
+                      <span className="text-zinc-200 font-semibold">{adminUser.username}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-zinc-400">Current Wallet Balance:</span>
+                      <span className="text-zinc-300">₹{founderWalletBalance.toLocaleString("en-IN")}</span>
+                    </div>
+                    <div className="flex justify-between border-t border-zinc-800 pt-2 text-emerald-400">
+                      <span>New Wallet Balance:</span>
+                      <span className="font-bold">₹{(founderWalletBalance + totalRevenue).toLocaleString("en-IN")}</span>
+                    </div>
                   </div>
 
-                  {/* Filter Controls */}
-                  <div className="flex items-center gap-2">
-                    <div className="relative">
-                      <Search className="w-3 h-3 text-zinc-500 absolute left-2.5 top-2" />
-                      <input
-                        type="text"
-                        placeholder="Search ledger..."
-                        value={revenueSearch}
-                        onChange={(e) => setRevenueSearch(e.target.value)}
-                        className="bg-slate-950 border border-zinc-800 rounded-lg pl-8 pr-3 py-1 text-[11px] text-zinc-300 w-32 focus:w-48 transition-all duration-300"
-                      />
+                  {/* PIN Input Form */}
+                  <form onSubmit={handleConfirmTransferRevenue} className="space-y-4">
+                    <div>
+                      <label className="block text-[11px] font-mono text-zinc-400 uppercase tracking-wider mb-1.5">
+                        Enter Founder Wallet PIN
+                      </label>
+                      <div className="relative">
+                        <input
+                          type={showTransferPin ? "text" : "password"}
+                          value={transferPinInput}
+                          onChange={(e) => {
+                            setTransferPinInput(e.target.value);
+                            setTransferPinError("");
+                          }}
+                          placeholder="4 or 6-digit Wallet PIN"
+                          autoFocus
+                          className="w-full bg-slate-950 border border-zinc-800 rounded-xl py-2.5 px-3 pr-10 text-sm text-zinc-100 font-mono focus:border-amber-500/50 outline-none"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowTransferPin(!showTransferPin)}
+                          className="absolute right-3 top-3 text-zinc-500 hover:text-zinc-300 transition-colors cursor-pointer"
+                        >
+                          {showTransferPin ? <Unlock className="w-4 h-4" /> : <Lock className="w-4 h-4" />}
+                        </button>
+                      </div>
                     </div>
 
-                    <select
-                      value={revenueFilter}
-                      onChange={(e) => setRevenueFilter(e.target.value)}
-                      className="bg-slate-950 border border-zinc-800 rounded-lg px-2 py-1 text-[11px] text-zinc-300 outline-none cursor-pointer"
-                    >
-                      <option value="All">All Categories</option>
-                      <option value="Membership Revenue">Membership Revenue</option>
-                      <option value="Service Revenue">Service Revenue</option>
-                      <option value="GST Revenue">GST Revenue</option>
-                      <option value="Expenses">Expenses</option>
-                    </select>
-                  </div>
-                </div>
+                    {/* Error Message */}
+                    {transferPinError && (
+                      <div className="p-3 bg-red-500/10 border border-red-500/20 text-red-400 text-xs font-mono rounded-xl">
+                        {transferPinError}
+                      </div>
+                    )}
 
-                <div className="overflow-x-auto max-h-[350px] overflow-y-auto pr-1">
-                  <table className="w-full text-left border-collapse">
-                    <thead>
-                      <tr className="border-b border-zinc-800 text-[9px] uppercase tracking-wider text-zinc-400 font-mono">
-                        <th className="py-2 px-1">Tx ID</th>
-                        <th className="py-2 px-1">Revenue Type</th>
-                        <th className="py-2 px-1">Source / Account</th>
-                        <th className="py-2 px-1">User Name (ID)</th>
-                        <th className="py-2 px-1 text-right">Amount</th>
-                        <th className="py-2 px-1 text-center">Date</th>
-                        <th className="py-2 px-1 text-right">Action</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-zinc-900 text-xs text-zinc-300">
-                      {filteredTransactions.length === 0 ? (
-                        <tr>
-                          <td colSpan={7} className="text-center py-16 text-zinc-500 italic font-sans">
-                            No ledger entries found matching your query criteria.
-                          </td>
-                        </tr>
-                      ) : (
-                        (filteredTransactions as any[]).map((tx: any) => {
-                          const isAd = tx.type === "ad_cost" || tx.revenueType === "Expense";
-                          const formattedDate = tx.manualDate || (tx.timestamp?.seconds ? new Date(tx.timestamp.seconds * 1000).toLocaleDateString("en-IN") : "Just now");
-                          return (
-                            <tr key={tx.id} className="hover:bg-zinc-900/30 transition-colors">
-                              <td className="py-2 px-1 font-mono text-[10px] text-zinc-500">
-                                {tx.id ? tx.id.substring(0, 8).toUpperCase() : "MANUAL"}
-                              </td>
-                              <td className="py-2 px-1 font-semibold text-zinc-200">
-                                {tx.revenueType || tx.type || "Revenue"}
-                              </td>
-                              <td className="py-2 px-1 text-zinc-400 text-[11px]">
-                                {tx.source || tx.title || "Direct Credit"}
-                              </td>
-                              <td className="py-2 px-1 text-[11px] text-zinc-400">
-                                {tx.username ? (
-                                  <span>
-                                    {tx.username}{" "}
-                                    <span className="text-[9px] text-zinc-500 font-mono">
-                                      ({tx.userId ? tx.userId.substring(0, 5) : ""})
-                                    </span>
-                                  </span>
-                                ) : (
-                                  <span className="italic text-zinc-600">Platform</span>
-                                )}
-                              </td>
-                              <td className={`py-2 px-1 text-right font-bold font-mono ${isAd ? "text-red-400" : "text-emerald-400"}`}>
-                                {isAd ? "-" : "+"}₹{(tx.amount || 0).toLocaleString("en-IN")}
-                              </td>
-                              <td className="py-2 px-1 text-center text-[10px] text-zinc-500 font-mono">
-                                {formattedDate}
-                              </td>
-                              <td className="py-2 px-1 text-right">
-                                <button
-                                  onClick={() => handleDeleteRevenueTransaction(tx.id)}
-                                  className="p-1 rounded text-red-400 hover:bg-red-500/10 hover:text-red-300 transition-colors cursor-pointer"
-                                  title="Delete transaction log permanently"
-                                >
-                                  <Trash2 className="w-3.5 h-3.5" />
-                                </button>
-                              </td>
-                            </tr>
-                          );
-                        })
-                      )}
-                    </tbody>
-                  </table>
+                    {/* Actions */}
+                    <div className="flex items-center space-x-3 pt-2">
+                      <button
+                        type="button"
+                        onClick={() => setShowTransferModal(false)}
+                        className="flex-1 py-2.5 bg-zinc-900 hover:bg-zinc-850 text-zinc-300 font-bold text-xs rounded-xl uppercase tracking-wider transition-colors cursor-pointer"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="submit"
+                        disabled={isTransferringRevenue}
+                        className="flex-1 py-2.5 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs rounded-xl uppercase tracking-wider transition-colors cursor-pointer flex items-center justify-center space-x-2 shadow-lg shadow-amber-500/10"
+                      >
+                        {isTransferringRevenue ? (
+                          <>
+                            <RefreshCw className="w-4 h-4 animate-spin" />
+                            <span>Transferring...</span>
+                          </>
+                        ) : (
+                          <>
+                            <Wallet className="w-4 h-4" />
+                            <span>Confirm Transfer</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  </form>
                 </div>
               </div>
-            </div>
+            )}
           </div>
         );
       })()}
@@ -6325,7 +6345,7 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
                 <span>Security Audit Log Control Room</span>
               </h3>
               <p className="text-xs text-zinc-400">
-                Track administrative operations, balance increases/decreases, security elevation, login trails, and website settings modifications.
+                Track administrative operations, balance changes, payment/withdrawal approvals, and platform configuration updates.
               </p>
             </div>
 
