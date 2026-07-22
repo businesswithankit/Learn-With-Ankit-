@@ -268,11 +268,17 @@ export default function WithdrawalSection({ user, onUpdateUser }: WithdrawalSect
     }
   };
 
+  const isWithdrawalAllowed = withdrawalType === "Fast" ? scheduleInfo.enabled : scheduleInfo.isOpen;
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!scheduleInfo.isOpen) {
-      setError(scheduleInfo.reason || "Withdrawal requests are currently closed according to the platform schedule.");
+    if (!isWithdrawalAllowed) {
+      if (!scheduleInfo.enabled) {
+        setError("Withdrawal requests are currently disabled globally by administration.");
+      } else {
+        setError("Standard withdrawals are only available during scheduled operating windows. Switch to Fast Payout to process your withdrawal anytime!");
+      }
       return;
     }
 
@@ -395,14 +401,17 @@ export default function WithdrawalSection({ user, onUpdateUser }: WithdrawalSect
       <div className="w-full max-w-2xl mx-auto rounded-2xl bg-zinc-950/60 border border-zinc-800 p-5 shadow-xl space-y-4">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-zinc-850">
           <div className="flex items-center space-x-2.5">
-            <div className={`p-2 rounded-xl ${scheduleInfo.isOpen ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20" : "bg-red-500/10 text-red-400 border border-red-500/20"}`}>
+            <div className={`p-2 rounded-xl ${scheduleInfo.isOpen ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20" : "bg-amber-500/10 text-amber-400 border border-amber-500/20"}`}>
               {scheduleInfo.isOpen ? <Clock className="w-5 h-5" /> : <Lock className="w-5 h-5" />}
             </div>
             <div>
               <div className="flex items-center space-x-2">
-                <h4 className="text-sm font-display font-bold text-zinc-100 uppercase tracking-wider">Withdrawal Schedule Status</h4>
-                <span className={`px-2 py-0.5 text-[9px] font-mono font-bold uppercase tracking-wider rounded-full border ${scheduleInfo.isOpen ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/30" : "bg-red-500/15 text-red-400 border-red-500/30"}`}>
-                  {scheduleInfo.isOpen ? "🟢 Window Open" : "🔴 Window Closed"}
+                <h4 className="text-sm font-display font-bold text-zinc-100 uppercase tracking-wider">Withdrawal Schedule & Availability</h4>
+                <span className={`px-2 py-0.5 text-[9px] font-mono font-bold uppercase tracking-wider rounded-full border ${scheduleInfo.isOpen ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/30" : "bg-amber-500/15 text-amber-400 border-amber-500/30"}`}>
+                  {scheduleInfo.isOpen ? "🟢 Standard Window Open" : "🟡 Standard Window Closed"}
+                </span>
+                <span className="px-2 py-0.5 text-[9px] font-mono font-bold uppercase tracking-wider rounded-full border bg-purple-500/15 text-purple-400 border-purple-500/30">
+                  ⚡ Fast Payout: 24/7 Anytime
                 </span>
               </div>
               <p className="text-[11px] text-zinc-400 mt-0.5">
@@ -413,25 +422,27 @@ export default function WithdrawalSection({ user, onUpdateUser }: WithdrawalSect
         </div>
 
         {!scheduleInfo.isOpen && (
-          <div className="p-3.5 rounded-xl bg-red-500/10 border border-red-500/20 text-red-300 text-xs flex items-start space-x-2.5">
-            <ShieldAlert className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
+          <div className="p-3.5 rounded-xl bg-purple-500/10 border border-purple-500/20 text-purple-300 text-xs flex items-start space-x-2.5">
+            <Zap className="w-4 h-4 text-purple-400 shrink-0 mt-0.5" />
             <div className="space-y-1">
-              <p className="font-semibold text-red-400">Withdrawal Requests Currently Blocked</p>
-              <p className="text-[11px] text-red-300/90 leading-relaxed">{scheduleInfo.reason}</p>
+              <p className="font-semibold text-purple-300">Standard Payout Schedule Window Closed</p>
+              <p className="text-[11px] text-zinc-300 leading-relaxed">
+                {scheduleInfo.reason} You can still withdraw right now by selecting <strong className="text-purple-400">Fast Payout (Priority)</strong> below!
+              </p>
             </div>
           </div>
         )}
 
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs font-sans pt-1">
           <div className="bg-slate-950/60 p-3 rounded-xl border border-zinc-850 space-y-1">
-            <span className="text-[9px] text-zinc-500 font-mono uppercase tracking-wider block">Allowed Days</span>
+            <span className="text-[9px] text-zinc-500 font-mono uppercase tracking-wider block">Standard Operating Days</span>
             <span className="font-medium text-zinc-200 text-[11px] truncate block" title={scheduleInfo.allowedDays.join(", ")}>
               {scheduleInfo.allowedDays.length === 7 ? "Everyday (All 7 Days)" : scheduleInfo.allowedDays.join(", ")}
             </span>
           </div>
 
           <div className="bg-slate-950/60 p-3 rounded-xl border border-zinc-850 space-y-1">
-            <span className="text-[9px] text-zinc-500 font-mono uppercase tracking-wider block">Daily Hours</span>
+            <span className="text-[9px] text-zinc-500 font-mono uppercase tracking-wider block">Standard Daily Hours</span>
             <span className="font-mono text-zinc-200 text-[11px] font-medium block">
               {scheduleInfo.startTime} - {scheduleInfo.endTime}
             </span>
@@ -545,7 +556,7 @@ export default function WithdrawalSection({ user, onUpdateUser }: WithdrawalSect
                 min={scheduleInfo.minAmount}
                 max={scheduleInfo.maxAmount}
                 required
-                disabled={!isKycCompleted || !scheduleInfo.isOpen}
+                disabled={!isKycCompleted || !isWithdrawalAllowed}
                 placeholder={`₹${scheduleInfo.minAmount.toLocaleString("en-IN")} - ₹${scheduleInfo.maxAmount.toLocaleString("en-IN")}`}
                 value={withdrawalAmount}
                 onChange={(e) => setWithdrawalAmount(e.target.value !== "" ? Number(e.target.value) : "")}
@@ -641,7 +652,7 @@ export default function WithdrawalSection({ user, onUpdateUser }: WithdrawalSect
                 pattern="\d{4}"
                 placeholder="Enter 4-digit Wallet PIN"
                 value={pin}
-                disabled={!isKycCompleted || !scheduleInfo.isOpen}
+                disabled={!isKycCompleted || !isWithdrawalAllowed}
                 onChange={(e) => setPin(e.target.value.replace(/\D/g, ''))}
                 className="w-full bg-slate-950/50 border border-zinc-800 rounded-xl py-2.5 px-4 text-sm text-zinc-200 tracking-widest text-center font-mono placeholder-zinc-650 focus:outline-hidden focus:border-amber-500/60 transition-colors disabled:opacity-50"
               />
@@ -656,16 +667,16 @@ export default function WithdrawalSection({ user, onUpdateUser }: WithdrawalSect
           <div className="pt-3">
             <button
               type="submit"
-              disabled={loading || !isKycCompleted || !scheduleInfo.isOpen}
+              disabled={loading || !isKycCompleted || !isWithdrawalAllowed}
               className="w-full bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 disabled:from-zinc-800 disabled:to-zinc-900 disabled:text-zinc-600 font-display font-semibold text-slate-950 text-sm py-3 px-4 rounded-xl shadow-lg transition-all duration-300 transform active:scale-98 flex items-center justify-center space-x-2 cursor-pointer"
             >
               <ArrowUpRight className="w-4 h-4" />
               <span>
                 {loading 
                   ? "Processing..." 
-                  : !scheduleInfo.isOpen 
-                  ? "Withdrawals Closed" 
-                  : "Initiate Withdrawal"}
+                  : !isWithdrawalAllowed 
+                  ? (withdrawalType === "Standard" ? "Standard Schedule Closed (Select Fast Payout)" : "Withdrawals Disabled") 
+                  : `Initiate ${withdrawalType} Withdrawal`}
               </span>
             </button>
           </div>

@@ -4754,7 +4754,7 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
                     <span>Withdrawal Schedule & Limits Control Center</span>
                   </h3>
                   <p className="text-xs text-zinc-400 mt-1">
-                    Configure active operating days, daily time windows, transaction bounds, and rolling caps.
+                    Configure operating days, daily time windows, and transaction caps for Standard Payouts. Fast Payouts remain available 24/7 anytime.
                   </p>
                 </div>
                 <button
@@ -4780,10 +4780,13 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
                     <Clock className="w-5 h-5" />
                   </div>
                   <div>
-                    <div className="flex items-center space-x-2">
-                      <span className="text-xs font-bold uppercase tracking-wider font-mono">Real-Time Status Preview:</span>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-xs font-bold uppercase tracking-wider font-mono">Standard Schedule Status:</span>
                       <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold font-mono uppercase tracking-wider ${livePreview.isOpen ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/40" : "bg-amber-500/20 text-amber-300 border border-amber-500/40"}`}>
-                        {livePreview.isOpen ? "🟢 OPEN FOR USER REQUESTS" : "🔴 CLOSED FOR USER REQUESTS"}
+                        {livePreview.isOpen ? "🟢 OPEN FOR USER REQUESTS" : "🟡 WINDOW CLOSED"}
+                      </span>
+                      <span className="px-2 py-0.5 rounded-full text-[9px] font-bold font-mono uppercase tracking-wider bg-purple-500/20 text-purple-300 border border-purple-500/40">
+                        ⚡ Fast Payout: 24/7 Available
                       </span>
                     </div>
                     <p className="text-[11px] text-zinc-300 mt-1">
@@ -4791,7 +4794,7 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
                     </p>
                     {!livePreview.isOpen && (
                       <p className="text-[11px] text-amber-400 font-medium mt-1">
-                        Reason for closure: {livePreview.reason}
+                        Standard Payout window status: {livePreview.reason} (Users can still choose Fast Payout to withdraw right now!)
                       </p>
                     )}
                   </div>
