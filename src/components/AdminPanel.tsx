@@ -7315,13 +7315,23 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
                 <div className="space-y-2">
                   {navMenu.map((item, index) => (
                     <div key={item.id + index} className="p-3 bg-zinc-950/40 border border-zinc-850 rounded-xl flex items-center justify-between gap-4">
-                      <div className="flex items-center space-x-3">
-                        <div className="w-6 h-6 rounded-md bg-zinc-900 text-[10px] font-mono font-bold text-zinc-400 flex items-center justify-center border border-zinc-800">
+                      <div className="flex items-center space-x-3 flex-1">
+                        <div className="w-6 h-6 rounded-md bg-zinc-900 text-[10px] font-mono font-bold text-zinc-400 flex items-center justify-center border border-zinc-800 shrink-0">
                           {index + 1}
                         </div>
-                        <div>
-                          <p className="font-semibold text-zinc-200">{item.label}</p>
-                          <span className="text-[9px] font-mono text-zinc-500">ID/Slug: {item.id} | Type: {item.type || "standard"}</span>
+                        <div className="flex-1 space-y-1">
+                          <input
+                            type="text"
+                            value={item.label}
+                            onChange={(e) => {
+                              const updated = [...navMenu];
+                              updated[index].label = e.target.value;
+                              setNavMenu(updated);
+                            }}
+                            className="bg-slate-950 border border-zinc-800 focus:border-amber-500 rounded-lg px-2.5 py-1 text-xs font-semibold text-zinc-100 outline-none w-full max-w-[220px]"
+                            placeholder="Menu Label Name"
+                          />
+                          <p className="text-[9px] font-mono text-zinc-500">ID: {item.id} | Type: {item.type || "standard"}</p>
                         </div>
                       </div>
 

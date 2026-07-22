@@ -27,7 +27,7 @@ import { logAuditAction } from "./utils/audit";
 // Icons
 import { 
   Trophy, Wallet, CreditCard, Landmark, History, Award, Shield, User, 
-  LogOut, ShieldAlert, Key, AlertCircle, RefreshCw, Layers, Sparkles, HelpCircle, X 
+  LogOut, ShieldAlert, Key, AlertCircle, RefreshCw, Layers, Sparkles, HelpCircle, X, Menu, Settings
 } from "lucide-react";
 
 type ActivePage = string;
@@ -37,6 +37,8 @@ export default function App() {
   const [authUser, setAuthUser] = useState<any>(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [activePage, setActivePage] = useState<ActivePage>("dashboard");
+  const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+  const [navMenuSettings, setNavMenuSettings] = useState<any[] | null>(null);
 
   // Login form state
   const [email, setEmail] = useState("");
@@ -173,13 +175,45 @@ export default function App() {
       console.warn("Custom pages subscription error (using empty fallback list):", err);
     });
 
+    // Listen to navigation menu settings
+    const unsubNav = onSnapshot(doc(db, "settings", "navigation"), (snapshot) => {
+      if (snapshot.exists()) {
+        setNavMenuSettings(snapshot.data().menu || []);
+      }
+    }, (err) => {
+      console.warn("Navigation settings subscription error:", err);
+    });
+
     return () => {
       unsubBadges();
       unsubFeatures();
       unsubWebsite();
       unsubPages();
+      unsubNav();
     };
   }, []);
+
+  // Handle mobile drawer back button and Escape key press
+  useEffect(() => {
+    if (isDrawerOpen) {
+      window.history.pushState({ drawerOpen: true }, "");
+      const handlePopState = () => {
+        setIsDrawerOpen(false);
+      };
+      const handleKeyDown = (e: KeyboardEvent) => {
+        if (e.key === "Escape") {
+          setIsDrawerOpen(false);
+        }
+      };
+      window.addEventListener("popstate", handlePopState);
+      window.addEventListener("keydown", handleKeyDown);
+
+      return () => {
+        window.removeEventListener("popstate", handlePopState);
+        window.removeEventListener("keydown", handleKeyDown);
+      };
+    }
+  }, [isDrawerOpen]);
 
   // Proactive Maintenance Mode Force Logout
   useEffect(() => {
@@ -467,26 +501,79 @@ export default function App() {
     totalEarnings: 0,
   } : null);
 
+  const getNavItemIcon = (id: string) => {
+    switch (id) {
+      case "dashboard": return <Layers className="w-4.5 h-4.5 text-amber-400 shrink-0" />;
+      case "payment": return <CreditCard className="w-4.5 h-4.5 text-emerald-400 shrink-0" />;
+      case "withdrawal": return <Landmark className="w-4.5 h-4.5 text-amber-400 shrink-0" />;
+      case "history": return <History className="w-4.5 h-4.5 text-blue-400 shrink-0" />;
+      case "leaderboard": return <Trophy className="w-4.5 h-4.5 text-yellow-400 shrink-0" />;
+      case "challenge": return <Award className="w-4.5 h-4.5 text-purple-400 shrink-0" />;
+      case "kyc": return <Shield className="w-4.5 h-4.5 text-cyan-400 shrink-0" />;
+      case "services": return <Sparkles className="w-4.5 h-4.5 text-amber-500 shrink-0" />;
+      case "profile": return <User className="w-4.5 h-4.5 text-zinc-300 shrink-0" />;
+      case "admin": return <ShieldAlert className="w-4.5 h-4.5 text-red-400 shrink-0" />;
+      default: return <Layers className="w-4.5 h-4.5 text-amber-400 shrink-0" />;
+    }
+  };
+
+  const defaultNavList = [
+    { id: "dashboard", label: "Dashboard", show: featureToggles.enableDashboard !== false },
+    { id: "payment", label: "Payment Claims", show: featureToggles.enablePaymentRequests !== false },
+    { id: "withdrawal", label: "Withdrawals", show: featureToggles.enableWithdrawals !== false },
+    { id: "history", label: "History Log", show: true },
+    { id: "leaderboard", label: "Leaderboard", show: featureToggles.enableLeaderboard !== false },
+    { id: "challenge", label: "Challenges", show: featureToggles.enableChallenges !== false },
+    { id: "kyc", label: "KYC Verification", show: featureToggles.enableKYCUpload !== false },
+    { id: "services", label: "Services", show: featureToggles.enableServices !== false },
+    { id: "profile", label: "My Profile", show: featureToggles.enableSettings !== false },
+  ];
+
+  let drawerMenuItems: any[] = [];
+
+  if (navMenuSettings && navMenuSettings.length > 0) {
+    drawerMenuItems = navMenuSettings
+      .filter(item => item.visible !== false && item.id !== "admin")
+      .map(item => {
+        let isVisibleByFeature = true;
+        if (item.id === "dashboard" && featureToggles.enableDashboard === false) isVisibleByFeature = false;
+        if (item.id === "payment" && featureToggles.enablePaymentRequests === false) isVisibleByFeature = false;
+        if (item.id === "withdrawal" && featureToggles.enableWithdrawals === false) isVisibleByFeature = false;
+        if (item.id === "leaderboard" && featureToggles.enableLeaderboard === false) isVisibleByFeature = false;
+        if (item.id === "challenge" && featureToggles.enableChallenges === false) isVisibleByFeature = false;
+        if (item.id === "kyc" && featureToggles.enableKYCUpload === false) isVisibleByFeature = false;
+        if (item.id === "services" && featureToggles.enableServices === false) isVisibleByFeature = false;
+        if (item.id === "profile" && featureToggles.enableSettings === false) isVisibleByFeature = false;
+
+        return {
+          id: item.id.startsWith("custom_page_") || item.type === "custom" ? (item.id.startsWith("custom_page_") ? item.id : `custom_page_${item.id}`) : item.id,
+          label: item.label,
+          icon: getNavItemIcon(item.id),
+          show: isVisibleByFeature
+        };
+      })
+      .filter(item => item.show);
+  } else {
+    drawerMenuItems = [
+      ...defaultNavList.filter(item => item.show).map(item => ({
+        ...item,
+        icon: getNavItemIcon(item.id)
+      })),
+      ...customPages.map(page => ({
+        id: `custom_page_${page.slug}`,
+        label: page.title,
+        icon: <Layers className="w-4.5 h-4.5 text-amber-400 shrink-0" />,
+        show: true
+      }))
+    ];
+  }
+
   const sidebarNavItems = [
-    { id: "dashboard", label: "Dashboard", icon: <Layers className="w-4.5 h-4.5" />, show: featureToggles.enableDashboard !== false },
-    { id: "payment", label: "Payment Claims", icon: <CreditCard className="w-4.5 h-4.5" />, show: featureToggles.enablePaymentRequests !== false },
-    { id: "withdrawal", label: "Withdrawals", icon: <Landmark className="w-4.5 h-4.5" />, show: featureToggles.enableWithdrawals !== false },
-    { id: "history", label: "History Log", icon: <History className="w-4.5 h-4.5" />, show: true },
-    { id: "leaderboard", label: "Leaderboard", icon: <Trophy className="w-4.5 h-4.5" />, show: featureToggles.enableLeaderboard !== false },
-    { id: "challenge", label: "Challenges", icon: <Award className="w-4.5 h-4.5" />, show: featureToggles.enableChallenges !== false },
-    { id: "kyc", label: "KYC Verification", icon: <Shield className="w-4.5 h-4.5" />, show: featureToggles.enableKYCUpload !== false },
-    { id: "services", label: "Services", icon: <Sparkles className="w-4.5 h-4.5 text-amber-500/80" />, show: featureToggles.enableServices !== false },
-    { id: "profile", label: "My Profile", icon: <User className="w-4.5 h-4.5" />, show: featureToggles.enableSettings !== false },
-    ...customPages.map((page) => ({
-      id: `custom_page_${page.slug}`,
-      label: page.title,
-      icon: <Layers className="w-4.5 h-4.5 text-amber-500/80" />,
-      show: true
-    })),
+    ...drawerMenuItems,
     ...(activeUser && (activeUser.role === "admin" || activeUser.role === "founder" || activeUser.role === "co-founder" || activeUser.role === "co_founder")
-      ? [{ id: "admin", label: "Admin Console", icon: <ShieldAlert className="w-4.5 h-4.5 text-red-400" />, show: true }] 
+      ? [{ id: "admin", label: "Admin Console", icon: <ShieldAlert className="w-4.5 h-4.5 text-red-400 shrink-0" />, show: true }]
       : [])
-  ].filter(item => item.show);
+  ];
 
   useEffect(() => {
     if (activeUser && sidebarNavItems.length > 0) {
@@ -495,7 +582,8 @@ export default function App() {
         setActivePage(sidebarNavItems[0].id as any);
       }
     }
-  }, [featureToggles, activePage, activeUser]);
+  }, [featureToggles, activePage, activeUser, navMenuSettings]);
+
 
   // --- LOGGED OUT LOGIN SCREEN ---
   if (!activeUser) {
@@ -729,30 +817,50 @@ export default function App() {
       <AnnouncementsBar />
  
       {/* Main Top Header Navigation */}
-      <header className="sticky top-0 bg-slate-950/80 backdrop-blur-xl border-b border-zinc-900 px-4 sm:px-6 py-4 flex items-center justify-between z-40">
+      <header className="sticky top-0 bg-black/90 backdrop-blur-xl border-b border-zinc-900 px-4 sm:px-6 py-3.5 flex items-center justify-between z-40">
         <div className="flex items-center space-x-3 select-none">
-          {websiteSettings?.logoUrl ? (
-            <img src={websiteSettings.logoUrl} alt="Logo" className="w-9 h-9 object-contain rounded-lg" referrerPolicy="no-referrer" />
-          ) : (
-            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-amber-400 via-yellow-500 to-amber-600 flex items-center justify-center font-display font-extrabold text-slate-950 shadow-md gold-glow">
-              ★
+          {/* Hamburger Menu Toggle Button */}
+          <button
+            onClick={() => setIsDrawerOpen(true)}
+            className="p-2 text-zinc-300 hover:text-amber-400 hover:bg-zinc-900 rounded-xl border border-zinc-850 transition-all cursor-pointer shadow-sm active:scale-95"
+            title="Open Navigation Menu"
+            aria-label="Open Navigation Menu"
+          >
+            <Menu className="w-5 h-5" />
+          </button>
+
+          {/* Logo & Website Title */}
+          <div
+            onClick={() => setActivePage("dashboard")}
+            className="flex items-center space-x-2.5 cursor-pointer group"
+          >
+            {websiteSettings?.logoUrl ? (
+              <img src={websiteSettings.logoUrl} alt="Logo" className="w-8.5 h-8.5 object-contain rounded-lg" referrerPolicy="no-referrer" />
+            ) : (
+              <div className="w-8.5 h-8.5 rounded-lg bg-gradient-to-br from-amber-400 via-yellow-500 to-amber-600 flex items-center justify-center font-display font-extrabold text-slate-950 shadow-md gold-glow group-hover:scale-105 transition-transform">
+                ★
+              </div>
+            )}
+            <div>
+              <h1 className="text-xs sm:text-sm font-display font-black tracking-tight text-zinc-100 uppercase group-hover:text-amber-400 transition-colors">
+                {websiteSettings?.websiteName || "LEARN WITH ANKIT"}
+              </h1>
+              <p className="text-[8px] uppercase tracking-widest text-amber-500/80 font-mono font-bold">
+                FINTECH ELITE V1.0
+              </p>
             </div>
-          )}
-          <div>
-            <h1 className="text-sm sm:text-base font-display font-black tracking-tight text-zinc-100 uppercase">{websiteSettings?.websiteName || "LEARN WITH ANKIT"}</h1>
-            <p className="text-[9px] uppercase tracking-widest text-zinc-500 font-mono">Fintech Elite v1.0</p>
           </div>
         </div>
 
         {/* Header Actions */}
-        <div className="flex items-center space-x-2 sm:space-x-4">
+        <div className="flex items-center space-x-2 sm:space-x-3">
           {activePageVideo?.url && (
             <button
               onClick={() => {
                 setHelpVideoUrl(activePageVideo.url);
                 setHelpVideoTitle(activePageVideo.title);
               }}
-              className="flex items-center space-x-1 sm:space-x-1.5 px-2.5 sm:px-3.5 py-1.5 bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/25 rounded-full text-[10px] sm:text-xs font-bold uppercase cursor-pointer transition-all duration-300"
+              className="flex items-center space-x-1 sm:space-x-1.5 px-2.5 sm:px-3 py-1.5 bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/25 rounded-full text-[10px] sm:text-xs font-bold uppercase cursor-pointer transition-all duration-300"
               title="Watch Page Tutorial"
             >
               <HelpCircle className="w-3.5 h-3.5 shrink-0" />
@@ -761,37 +869,204 @@ export default function App() {
           )}
 
           <NotificationsDropdown userId={activeUser.userId || ""} userRole={activeUser.role || "user"} />
-          
+
           <button
-            onClick={handleLogout}
-            className="p-2 text-zinc-500 hover:text-red-400 hover:bg-zinc-900/40 rounded-full transition-all duration-300 cursor-pointer"
-            title="Log Out"
+            onClick={() => setActivePage("profile")}
+            className="p-1 text-zinc-400 hover:text-zinc-100 hover:bg-zinc-900 rounded-xl transition-all cursor-pointer border border-transparent hover:border-zinc-800"
+            title="My Profile"
           >
-            <LogOut className="w-5 h-5" />
+            {activeUser.profilePic ? (
+              <img src={activeUser.profilePic} alt={activeUser.username} className="w-7.5 h-7.5 rounded-lg object-cover border border-zinc-800" referrerPolicy="no-referrer" />
+            ) : (
+              <div className="w-7.5 h-7.5 rounded-lg bg-zinc-900 border border-zinc-800 flex items-center justify-center font-bold text-amber-400 text-xs">
+                {(activeUser.username || "U").charAt(0).toUpperCase()}
+              </div>
+            )}
           </button>
         </div>
       </header>
 
+      {/* --- HAMBURGER SIDEBAR NAVIGATION DRAWER --- */}
+      {isDrawerOpen && (
+        <div className="fixed inset-0 z-50 flex">
+          {/* Backdrop Overlay */}
+          <div
+            onClick={() => setIsDrawerOpen(false)}
+            className="fixed inset-0 bg-black/80 backdrop-blur-xs transition-opacity duration-300 animate-fade-in"
+          />
+
+          {/* Drawer Sidebar Container */}
+          <div className="relative w-80 max-w-[85vw] h-full bg-black border-r border-zinc-900 text-zinc-100 flex flex-col justify-between z-10 shadow-2xl overflow-y-auto animate-slide-in-left select-none">
+            
+            {/* SIDEBAR HEADER */}
+            <div className="p-5 border-b border-zinc-900 bg-zinc-950/90 space-y-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center space-x-3">
+                  {websiteSettings?.logoUrl ? (
+                    <img src={websiteSettings.logoUrl} alt="Logo" className="w-9 h-9 object-contain rounded-lg" referrerPolicy="no-referrer" />
+                  ) : (
+                    <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-amber-400 via-yellow-500 to-amber-600 flex items-center justify-center font-display font-extrabold text-slate-950 shadow-md gold-glow">
+                      ★
+                    </div>
+                  )}
+                  <div>
+                    <h2 className="text-sm font-display font-black tracking-tight text-zinc-100 uppercase">
+                      {websiteSettings?.websiteName || "LEARN WITH ANKIT"}
+                    </h2>
+                    <p className="text-[9px] uppercase tracking-widest text-amber-400 font-mono font-bold">
+                      FINTECH ELITE V1.0
+                    </p>
+                  </div>
+                </div>
+                
+                <button
+                  onClick={() => setIsDrawerOpen(false)}
+                  className="p-2 text-zinc-400 hover:text-zinc-100 hover:bg-zinc-900 rounded-xl transition-colors cursor-pointer"
+                  title="Close Menu"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {/* User Profile Card */}
+              <div className="p-3 bg-slate-950 border border-zinc-850 rounded-2xl flex items-center space-x-3 shadow-inner">
+                {activeUser.profilePic ? (
+                  <img
+                    src={activeUser.profilePic}
+                    alt={activeUser.username || "User"}
+                    className="w-10 h-10 rounded-xl object-cover border border-amber-500/30 shrink-0"
+                    referrerPolicy="no-referrer"
+                  />
+                ) : (
+                  <div className="w-10 h-10 rounded-xl bg-zinc-900 border border-zinc-800 flex items-center justify-center font-display font-extrabold text-amber-400 text-sm shrink-0">
+                    {(activeUser.username || "U").charAt(0).toUpperCase()}
+                  </div>
+                )}
+                <div className="overflow-hidden space-y-0.5">
+                  <p className="text-xs font-display font-bold text-zinc-100 truncate">
+                    {activeUser.username || "User"}
+                  </p>
+                  <p className="text-[9px] text-zinc-500 font-mono truncate">
+                    ID: {activeUser.customUserId || activeUser.userId || "N/A"}
+                  </p>
+                  <div>
+                    <span className={`inline-block px-2 py-0.5 text-[8px] font-mono font-bold uppercase tracking-wider rounded-md border ${
+                      activeUser.role === "founder" ? "bg-amber-500/20 text-amber-300 border-amber-500/40" :
+                      activeUser.role === "co-founder" || activeUser.role === "co_founder" ? "bg-purple-500/20 text-purple-300 border-purple-500/40" :
+                      activeUser.role === "admin" ? "bg-red-500/20 text-red-300 border-red-500/40" :
+                      "bg-zinc-800 text-zinc-300 border-zinc-700"
+                    }`}>
+                      {activeUser.role === "founder" ? "Founder" :
+                       activeUser.role === "co-founder" || activeUser.role === "co_founder" ? "Co-Founder" :
+                       activeUser.role === "admin" ? "Admin" : "User"}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* MENU ITEMS */}
+            <div className="flex-1 p-4 space-y-1 overflow-y-auto">
+              <p className="px-3 text-[9px] font-mono font-bold uppercase tracking-widest text-zinc-500 mb-2">
+                Navigation Menu
+              </p>
+
+              {drawerMenuItems.map((item) => (
+                <button
+                  key={item.id}
+                  onClick={() => {
+                    setActivePage(item.id);
+                    setIsDrawerOpen(false);
+                  }}
+                  className={`w-full flex items-center space-x-3 px-3.5 py-3 rounded-xl text-xs font-semibold uppercase tracking-wider transition-all duration-200 cursor-pointer ${
+                    activePage === item.id
+                      ? "bg-amber-500 text-slate-950 font-extrabold shadow-md gold-glow"
+                      : "text-zinc-300 hover:text-amber-400 hover:bg-zinc-900/60"
+                  }`}
+                >
+                  {item.icon}
+                  <span className="truncate">{item.label}</span>
+                </button>
+              ))}
+
+              {/* FOUNDER SECTION */}
+              {(activeUser.role === "founder" || activeUser.role === "co-founder" || activeUser.role === "co_founder" || activeUser.role === "admin") && (
+                <div className="pt-4 mt-2 border-t border-zinc-900">
+                  <div className="px-3 pb-2 flex items-center justify-between">
+                    <span className="text-[9px] font-mono font-bold text-amber-500 uppercase tracking-widest">
+                      FOUNDER
+                    </span>
+                    <span className="text-[8px] font-mono text-zinc-600 uppercase">Admin Access</span>
+                  </div>
+
+                  <button
+                    onClick={() => {
+                      setActivePage("admin");
+                      setIsDrawerOpen(false);
+                    }}
+                    className={`w-full flex items-center space-x-3 px-3.5 py-3 rounded-xl text-xs font-semibold uppercase tracking-wider transition-all duration-200 cursor-pointer ${
+                      activePage === "admin"
+                        ? "bg-red-500 text-zinc-100 font-extrabold shadow-md gold-glow"
+                        : "text-red-400 hover:bg-red-500/10 border border-red-500/20"
+                    }`}
+                  >
+                    <ShieldAlert className="w-4.5 h-4.5 text-red-400 shrink-0" />
+                    <span>Admin Console</span>
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* BOTTOM MENU */}
+            <div className="p-4 border-t border-zinc-900 bg-zinc-950/90 space-y-1">
+              <button
+                onClick={() => {
+                  setIsDrawerOpen(false);
+                  if (activePageVideo?.url) {
+                    setHelpVideoUrl(activePageVideo.url);
+                    setHelpVideoTitle(activePageVideo.title);
+                  } else {
+                    alert("Help & Tutorials: Click 'Page Tutorial' on top right or visit Community Guidelines in footer.");
+                  }
+                }}
+                className="w-full flex items-center space-x-3 px-3.5 py-2.5 rounded-xl text-xs font-semibold text-zinc-400 hover:text-amber-400 hover:bg-zinc-900 transition-colors cursor-pointer"
+              >
+                <HelpCircle className="w-4.5 h-4.5 text-amber-400 shrink-0" />
+                <span>Help & Tutorials</span>
+              </button>
+
+              <button
+                onClick={() => {
+                  setIsDrawerOpen(false);
+                  setActivePage("profile");
+                }}
+                className={`w-full flex items-center space-x-3 px-3.5 py-2.5 rounded-xl text-xs font-semibold transition-colors cursor-pointer ${
+                  activePage === "profile" ? "bg-amber-500/15 text-amber-400 border border-amber-500/30 font-bold" : "text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900"
+                }`}
+              >
+                <Settings className="w-4.5 h-4.5 text-zinc-400 shrink-0" />
+                <span>Settings</span>
+              </button>
+
+              <button
+                onClick={() => {
+                  setIsDrawerOpen(false);
+                  handleLogout();
+                }}
+                className="w-full flex items-center space-x-3 px-3.5 py-2.5 rounded-xl text-xs font-semibold text-red-400 hover:bg-red-500/10 transition-colors cursor-pointer"
+              >
+                <LogOut className="w-4.5 h-4.5 text-red-400 shrink-0" />
+                <span>Logout</span>
+              </button>
+            </div>
+
+          </div>
+        </div>
+      )}
+
       {/* Main Dashboard Layout Container */}
-      <div className="flex-1 flex flex-col md:flex-row relative">
-        
-        {/* Dynamic Navigation Left Sidebar */}
-        <aside className="w-full md:w-64 shrink-0 bg-slate-950 border-r border-zinc-900 p-4 space-y-1 flex flex-row md:flex-col overflow-x-auto md:overflow-x-visible md:space-y-1.5 md:p-5">
-          {sidebarNavItems.map((item) => (
-            <button
-              key={item.id}
-              onClick={() => setActivePage(item.id as ActivePage)}
-              className={`flex items-center space-x-3 px-3.5 py-2.5 rounded-xl text-xs font-semibold uppercase tracking-wider transition-all duration-300 whitespace-nowrap shrink-0 cursor-pointer ${
-                activePage === item.id
-                  ? "bg-amber-500 text-slate-950 shadow-md font-extrabold gold-glow"
-                  : "text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900/30"
-              }`}
-            >
-              {item.icon}
-              <span>{item.label}</span>
-            </button>
-          ))}
-        </aside>
+      <div className="flex-1 flex flex-col relative">
+
 
         {/* Active Content Panel */}
         <main className="flex-1 p-4 sm:p-6 md:p-8 bg-linear-to-b from-slate-950 via-zinc-950/20 to-black overflow-y-auto">
