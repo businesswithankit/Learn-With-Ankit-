@@ -3,6 +3,7 @@ import { collection, addDoc, serverTimestamp, doc, runTransaction, onSnapshot, q
 import { db, handleFirestoreError, OperationType } from "../firebase";
 import { UserProfile, Challenge, ChallengeProgress, ChallengeLead } from "../types";
 import { Trophy, Calendar, Award, Hourglass, Plus, Image, CheckCircle, ArrowRight, ShieldCheck, ClipboardCheck, Sparkles, AlertTriangle, FileText, X, Lock, CreditCard } from "lucide-react";
+import { hashPin } from "../utils/pin";
 
 const canManageChallenges = (u: UserProfile) => {
   return u.role === "founder" || u.role === "admin" || (u.role === "co-founder" && u.coFounderPermissions?.manageChallenges === true);
@@ -65,6 +66,12 @@ export default function ChallengesSection({ user, onUpdateUser }: ChallengesSect
   const [entryFee, setEntryFee] = useState<number | "">("");
   const [adminSuccess, setAdminSuccess] = useState(false);
   const [adminError, setAdminError] = useState<string | null>(null);
+
+  // Wallet PIN payment modal state
+  const [payModalChallenge, setPayModalChallenge] = useState<Challenge | null>(null);
+  const [payPin, setPayPin] = useState("");
+  const [payPinError, setPayPinError] = useState<string | null>(null);
+  const [isPayingFee, setIsPayingFee] = useState(false);
 
   useEffect(() => {
     // Listen to active challenges
@@ -212,7 +219,7 @@ export default function ChallengesSection({ user, onUpdateUser }: ChallengesSect
     }
   };
 
-  const handlePayEntryFee = async (challenge: Challenge) => {
+  const openPayModal = (challenge: Challenge) => {
     if (!challenge.entryFee || challenge.entryFee <= 0) return;
     
     if (user.walletBalance < challenge.entryFee) {
@@ -220,12 +227,37 @@ export default function ChallengesSection({ user, onUpdateUser }: ChallengesSect
       return;
     }
 
-    if (!window.confirm(`Are you sure you want to pay a ₹${challenge.entryFee} entry fee to enter the "${challenge.challengeName}" challenge? This amount will be deducted from your wallet balance instantly.`)) {
+    setPayModalChallenge(challenge);
+    setPayPin("");
+    setPayPinError(null);
+  };
+
+  const handleConfirmPayment = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!payModalChallenge || !payModalChallenge.entryFee) return;
+
+    if (!user.walletPinHash) {
+      setPayPinError("Wallet PIN not set up. Please set up your 4-digit Wallet PIN in Profile settings first.");
       return;
     }
 
-    setLoading(true);
+    if (payPin.length !== 4 || isNaN(Number(payPin))) {
+      setPayPinError("Wallet PIN must be exactly 4 digits.");
+      return;
+    }
+
+    setIsPayingFee(true);
+    setPayPinError(null);
+
     try {
+      const hashedInput = await hashPin(payPin);
+      if (hashedInput !== user.walletPinHash) {
+        setPayPinError("Incorrect Wallet PIN. Challenge entry payment denied.");
+        setIsPayingFee(false);
+        return;
+      }
+
+      const challenge = payModalChallenge;
       const userRef = doc(db, "users", user.userId);
       const progressId = `${challenge.id}_${user.userId}`;
       const progressRef = doc(db, "challengeProgress", progressId);
@@ -297,12 +329,14 @@ export default function ChallengesSection({ user, onUpdateUser }: ChallengesSect
         walletBalance: user.walletBalance - challenge.entryFee,
       });
 
-      alert(`🎉 Success! You have successfully registered for the "${challenge.challengeName}" challenge.`);
+      setPayModalChallenge(null);
+      setPayPin("");
+      alert(`🎉 Success! You have successfully paid ₹${challenge.entryFee} and registered for the "${challenge.challengeName}" challenge.`);
     } catch (err: any) {
       console.error(err);
-      alert(err.message || "Failed to process challenge entry fee payment.");
+      setPayPinError(err.message || "Failed to process challenge entry fee payment.");
     } finally {
-      setLoading(false);
+      setIsPayingFee(false);
     }
   };
 
@@ -623,7 +657,7 @@ export default function ChallengesSection({ user, onUpdateUser }: ChallengesSect
                             Pay entry fee of <strong className="text-zinc-200">₹{challenge.entryFee}</strong> to unlock this bonus scheme and eligible rewards.
                           </p>
                           <button
-                            onClick={() => handlePayEntryFee(challenge)}
+                            onClick={() => openPayModal(challenge)}
                             disabled={isExpired}
                             className="w-full py-2 bg-gradient-to-r from-purple-500 to-purple-600 hover:from-purple-600 hover:to-purple-700 disabled:from-zinc-800 disabled:to-zinc-900 disabled:text-zinc-600 text-white font-bold text-[10px] rounded-lg transition-all shadow-md cursor-pointer uppercase tracking-wider flex items-center justify-center space-x-1"
                           >
@@ -709,6 +743,142 @@ export default function ChallengesSection({ user, onUpdateUser }: ChallengesSect
           </div>
         )}
       </div>
+
+      {/* Wallet PIN Challenge Fee Modal */}
+      {payModalChallenge && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-fade-in">
+          <div className="relative w-full max-w-md bg-zinc-950 border border-zinc-800 rounded-2xl p-6 shadow-2xl space-y-5">
+            {/* Header */}
+            <div className="flex items-center justify-between border-b border-zinc-850 pb-4">
+              <div className="flex items-center space-x-3">
+                <div className="p-2.5 rounded-xl bg-purple-500/10 text-purple-400 border border-purple-500/20">
+                  <Lock className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-display font-bold text-zinc-100">Wallet PIN Required</h3>
+                  <p className="text-xs text-zinc-400">Security check before paying challenge fee</p>
+                </div>
+              </div>
+              <button
+                onClick={() => {
+                  setPayModalChallenge(null);
+                  setPayPin("");
+                  setPayPinError(null);
+                }}
+                disabled={isPayingFee}
+                className="p-1.5 text-zinc-400 hover:text-zinc-100 hover:bg-zinc-900 rounded-lg transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Payment Overview */}
+            <div className="bg-slate-900/60 border border-zinc-850 rounded-xl p-4 space-y-2.5 font-sans">
+              <div className="flex justify-between items-center text-xs">
+                <span className="text-zinc-400">Challenge:</span>
+                <span className="font-semibold text-zinc-200 truncate max-w-[200px]">{payModalChallenge.challengeName}</span>
+              </div>
+              <div className="flex justify-between items-center text-xs">
+                <span className="text-zinc-400">Entry Fee:</span>
+                <span className="font-bold text-purple-400 font-mono text-sm">₹{payModalChallenge.entryFee?.toLocaleString("en-IN")}</span>
+              </div>
+              <div className="flex justify-between items-center text-xs pt-2 border-t border-zinc-800/60">
+                <span className="text-zinc-400">Wallet Balance:</span>
+                <span className="font-semibold text-zinc-300 font-mono">₹{user.walletBalance.toLocaleString("en-IN")}</span>
+              </div>
+              <div className="flex justify-between items-center text-xs">
+                <span className="text-zinc-400">Remaining Balance:</span>
+                <span className="font-bold text-emerald-400 font-mono">
+                  ₹{Math.max(0, user.walletBalance - (payModalChallenge.entryFee || 0)).toLocaleString("en-IN")}
+                </span>
+              </div>
+            </div>
+
+            {/* Error state alert */}
+            {payPinError && (
+              <div className="p-3 bg-red-500/10 border border-red-500/25 rounded-xl text-red-400 text-xs flex items-start space-x-2 animate-fade-in">
+                <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+                <span>{payPinError}</span>
+              </div>
+            )}
+
+            {/* PIN Form or Setup Prompt */}
+            {!user.walletPinHash ? (
+              <div className="p-4 bg-amber-500/10 border border-amber-500/25 rounded-xl space-y-2 text-center font-sans">
+                <div className="flex items-center justify-center space-x-1.5 text-amber-400 font-semibold text-xs">
+                  <Lock className="w-4 h-4" />
+                  <span>Wallet PIN Not Set</span>
+                </div>
+                <p className="text-xs text-zinc-300 leading-relaxed">
+                  You must set up a secure 4-digit Wallet PIN before paying challenge entry fees. Go to <strong>My Profile &gt; Security</strong> to set up your PIN.
+                </p>
+                <button
+                  onClick={() => {
+                    setPayModalChallenge(null);
+                    setPayPin("");
+                    setPayPinError(null);
+                  }}
+                  className="mt-2 px-4 py-2 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 text-xs font-semibold rounded-lg transition-colors cursor-pointer"
+                >
+                  Close &amp; Go to Profile
+                </button>
+              </div>
+            ) : (
+              <form onSubmit={handleConfirmPayment} className="space-y-4">
+                <div>
+                  <label className="block text-xs font-semibold text-zinc-300 mb-2 uppercase tracking-wider font-mono">
+                    Enter 4-Digit Wallet PIN
+                  </label>
+                  <input
+                    type="password"
+                    maxLength={4}
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                    autoFocus
+                    required
+                    value={payPin}
+                    onChange={(e) => {
+                      const val = e.target.value.replace(/\D/g, "");
+                      if (val.length <= 4) setPayPin(val);
+                    }}
+                    placeholder="••••"
+                    className="w-full bg-slate-900 border border-zinc-700 focus:border-purple-500 rounded-xl py-3 px-4 text-center font-mono font-bold text-xl text-zinc-100 tracking-[0.5em] placeholder:tracking-normal placeholder:text-zinc-600 outline-none transition-colors"
+                  />
+                </div>
+
+                <div className="flex items-center space-x-3 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPayModalChallenge(null);
+                      setPayPin("");
+                      setPayPinError(null);
+                    }}
+                    disabled={isPayingFee}
+                    className="flex-1 py-2.5 bg-zinc-900 hover:bg-zinc-800 text-zinc-300 text-xs font-semibold rounded-xl border border-zinc-800 transition-colors cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isPayingFee || payPin.length !== 4}
+                    className="flex-1 py-2.5 bg-gradient-to-r from-purple-500 to-purple-600 hover:from-purple-600 hover:to-purple-700 disabled:from-zinc-800 disabled:to-zinc-900 disabled:text-zinc-600 text-white text-xs font-bold rounded-xl shadow-lg transition-all cursor-pointer flex items-center justify-center space-x-2"
+                  >
+                    {isPayingFee ? (
+                      <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                    ) : (
+                      <>
+                        <CreditCard className="w-4 h-4" />
+                        <span>Verify &amp; Pay Fee</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              </form>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
