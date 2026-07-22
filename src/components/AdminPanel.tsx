@@ -2406,7 +2406,11 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
       filename = "Withdrawals_Payout_Report.csv";
     } else {
       headers = ["ID", "Administrator", "Action Taken", "Date", "Time", "IP Address"];
-      rows = auditLogs.map(a => [a.id, a.adminName, a.action, a.date, a.time, a.ip || ""]);
+      const filteredLogs = auditLogs.filter(a => {
+        const act = (a.action || "").toLowerCase();
+        return act !== "login" && act !== "logout";
+      });
+      rows = filteredLogs.map(a => [a.id, a.adminName, a.action, a.date, a.time, a.ip || ""]);
       filename = "System_Audit_Log.csv";
     }
 
@@ -2641,7 +2645,11 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
   const handleExportAuditLogs = () => {
     try {
       const headers = ["Date", "Time", "Founder/Admin Name", "Action", "Target User", "Description", "IP Address"];
-      const rows = auditLogs.map(log => [
+      const filteredLogs = auditLogs.filter(a => {
+        const act = (a.action || "").toLowerCase();
+        return act !== "login" && act !== "logout";
+      });
+      const rows = filteredLogs.map(log => [
         log.date,
         log.time,
         log.adminName,
@@ -5961,6 +5969,8 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
                 </thead>
                 <tbody>
                   {auditLogs.filter(log => {
+                    const act = (log.action || "").toLowerCase();
+                    if (act === "login" || act === "logout") return false;
                     const term = searchQuery.toLowerCase().trim();
                     if (!term) return true;
                     return (
@@ -5977,6 +5987,8 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
                     </tr>
                   ) : (
                     auditLogs.filter(log => {
+                      const act = (log.action || "").toLowerCase();
+                      if (act === "login" || act === "logout") return false;
                       const term = searchQuery.toLowerCase().trim();
                       if (!term) return true;
                       return (

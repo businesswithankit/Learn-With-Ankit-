@@ -34,6 +34,7 @@ type ActivePage = string;
 
 export default function App() {
   const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);
+  const [authUser, setAuthUser] = useState<any>(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [activePage, setActivePage] = useState<ActivePage>("dashboard");
 
@@ -234,7 +235,7 @@ export default function App() {
     let unsubscribePayments: (() => void) | null = null;
 
     // Synchronize Auth user state
-    const unsubscribeAuth = onAuthStateChanged(auth, (authUser) => {
+    const unsubscribeAuth = onAuthStateChanged(auth, (firebaseAuthUser) => {
       // Clean up any existing listeners
       if (unsubscribeProfile) {
         unsubscribeProfile();
@@ -245,9 +246,12 @@ export default function App() {
         unsubscribePayments = null;
       }
 
-      if (authUser) {
+      setAuthUser(firebaseAuthUser);
+      setAuthLoading(false);
+
+      if (firebaseAuthUser) {
         // Listen to User Profile changes in real-time
-        const userRef = doc(db, "users", authUser.uid);
+        const userRef = doc(db, "users", firebaseAuthUser.uid);
         
         unsubscribeProfile = onSnapshot(userRef, async (snapshot) => {
           try {
@@ -258,8 +262,8 @@ export default function App() {
               if (maintenanceMode && data.role !== "founder" && data.role !== "admin") {
                 await signOut(auth);
                 setCurrentUser(null);
+                setAuthUser(null);
                 setLoginError("Maintenance Mode Activated. Please try again later.");
-                setAuthLoading(false);
                 return;
               }
               
@@ -282,23 +286,11 @@ export default function App() {
               }
               
               setCurrentUser(data);
-
-              // Log Login event once per session
-              if (!sessionStorage.getItem("logged_in_audit")) {
-                sessionStorage.setItem("logged_in_audit", "true");
-                logAuditAction(
-                  data.userId,
-                  data.username,
-                  "Login",
-                  "Self",
-                  `User logged in successfully with role: ${data.role}`
-                );
-              }
             } else {
               // Document doesn't exist, check if bootstrap admin is logging in
-              if (authUser.email === "anmolkumar10290@gmail.com") {
+              if (firebaseAuthUser.email === "anmolkumar10290@gmail.com") {
                 const profile: UserProfile = {
-                  userId: authUser.uid,
+                  userId: firebaseAuthUser.uid,
                   customUserId: "LWA-ADMIN",
                   username: "Anmol Kumar",
                   email: "anmolkumar10290@gmail.com",
@@ -324,18 +316,15 @@ export default function App() {
             }
           } catch (snapshotErr) {
             console.error("Error inside profile snapshot handler:", snapshotErr);
-          } finally {
-            setAuthLoading(false);
           }
         }, (err) => {
           console.error("User profile read error:", err);
-          setAuthLoading(false);
         });
 
         // Listen to approved payments in real-time to compute and synchronize rolling earnings
         const qPayments = query(
           collection(db, "payments"),
-          where("userId", "==", authUser.uid),
+          where("userId", "==", firebaseAuthUser.uid),
           where("status", "==", "Approved")
         );
         unsubscribePayments = onSnapshot(qPayments, async (paySnapshot) => {
@@ -374,7 +363,6 @@ export default function App() {
         });
       } else {
         setCurrentUser(null);
-        setAuthLoading(false);
       }
     });
 
@@ -441,17 +429,9 @@ export default function App() {
 
   const handleLogout = async () => {
     try {
-      if (currentUser) {
-        await logAuditAction(
-          currentUser.userId,
-          currentUser.username,
-          "Logout",
-          "Self",
-          "User logged out of session"
-        );
-      }
-      sessionStorage.removeItem("logged_in_audit");
       await signOut(auth);
+      setAuthUser(null);
+      setCurrentUser(null);
       setActivePage("dashboard");
     } catch (err) {
       console.error("Logout failed:", err);
@@ -463,6 +443,23 @@ export default function App() {
       setCurrentUser({ ...currentUser, ...updatedFields });
     }
   };
+
+  const activeUser: UserProfile | null = currentUser || (authUser ? {
+    userId: authUser.uid,
+    username: authUser.displayName || authUser.email?.split("@")[0] || "User",
+    email: authUser.email || "",
+    phone: "",
+    state: "",
+    role: "user",
+    badge: "Bronze",
+    accountStatus: "Active",
+    joinDate: new Date().toLocaleDateString("en-IN"),
+    walletBalance: 0,
+    todayEarnings: 0,
+    last7DaysEarnings: 0,
+    last30DaysEarnings: 0,
+    totalEarnings: 0,
+  } : null);
 
   const sidebarNavItems = [
     { id: "dashboard", label: "Dashboard", icon: <Layers className="w-4.5 h-4.5" />, show: featureToggles.enableDashboard !== false },
@@ -480,31 +477,22 @@ export default function App() {
       icon: <Layers className="w-4.5 h-4.5 text-amber-500/80" />,
       show: true
     })),
-    ...(currentUser && (currentUser.role === "admin" || currentUser.role === "founder" || currentUser.role === "co-founder" || currentUser.role === "co_founder")
+    ...(activeUser && (activeUser.role === "admin" || activeUser.role === "founder" || activeUser.role === "co-founder" || activeUser.role === "co_founder")
       ? [{ id: "admin", label: "Admin Console", icon: <ShieldAlert className="w-4.5 h-4.5 text-red-400" />, show: true }] 
       : [])
   ].filter(item => item.show);
 
   useEffect(() => {
-    if (currentUser && sidebarNavItems.length > 0) {
+    if (activeUser && sidebarNavItems.length > 0) {
       const isCurrentPageVisible = sidebarNavItems.some(item => item.id === activePage || (activePage.startsWith("custom_page_") && item.id === activePage));
       if (!isCurrentPageVisible) {
         setActivePage(sidebarNavItems[0].id as any);
       }
     }
-  }, [featureToggles, activePage, currentUser]);
-
-  if (authLoading) {
-    return (
-      <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center space-y-4">
-        <RefreshCw className="w-10 h-10 text-amber-500 animate-spin" />
-        <p className="font-display text-zinc-400 text-sm tracking-widest uppercase">Initializing Secure Terminal...</p>
-      </div>
-    );
-  }
+  }, [featureToggles, activePage, activeUser]);
 
   // --- LOGGED OUT LOGIN SCREEN ---
-  if (!currentUser) {
+  if (!activeUser) {
     return (
       <div className="min-h-screen bg-linear-to-b from-slate-950 via-zinc-950 to-black flex items-center justify-center p-4 relative overflow-hidden font-sans select-none">
         {/* Glow Spheres */}
@@ -638,10 +626,10 @@ export default function App() {
   }
 
   // --- SUSPENDED USER SCREEN ---
-  if (currentUser && currentUser.accountStatus === "Suspended" && currentUser.role !== "admin" && currentUser.role !== "founder" && currentUser.role !== "co-founder") {
+  if (activeUser && activeUser.accountStatus === "Suspended" && activeUser.role !== "admin" && activeUser.role !== "founder" && activeUser.role !== "co-founder") {
     let durationString = "Permanent Ban";
-    if (currentUser.bannedUntil && currentUser.bannedUntil !== "Permanent") {
-      const remainingMs = typeof currentUser.bannedUntil === "number" ? currentUser.bannedUntil - Date.now() : new Date(currentUser.bannedUntil).getTime() - Date.now();
+    if (activeUser.bannedUntil && activeUser.bannedUntil !== "Permanent") {
+      const remainingMs = typeof activeUser.bannedUntil === "number" ? activeUser.bannedUntil - Date.now() : new Date(activeUser.bannedUntil).getTime() - Date.now();
       if (remainingMs > 0) {
         const remainingMinutes = Math.ceil(remainingMs / (60 * 1000));
         if (remainingMinutes < 60) {
@@ -673,10 +661,10 @@ export default function App() {
           </div>
           
           <div className="bg-slate-950/80 rounded-2xl p-4.5 border border-zinc-900 text-left space-y-2.5 font-mono text-xs">
-            <p className="text-zinc-500"><span className="text-zinc-400 font-semibold uppercase">Affiliate ID:</span> {currentUser.customUserId || currentUser.userId}</p>
+            <p className="text-zinc-500"><span className="text-zinc-400 font-semibold uppercase">Affiliate ID:</span> {activeUser.customUserId || activeUser.userId}</p>
             <p className="text-zinc-500"><span className="text-zinc-400 font-semibold uppercase">Ban Duration:</span> <span className="text-red-400 font-bold">{durationString}</span></p>
-            {currentUser.bannedReason && (
-              <p className="text-zinc-500"><span className="text-zinc-400 font-semibold uppercase">Reason:</span> <span className="text-zinc-300">{currentUser.bannedReason}</span></p>
+            {activeUser.bannedReason && (
+              <p className="text-zinc-500"><span className="text-zinc-400 font-semibold uppercase">Reason:</span> <span className="text-zinc-300">{activeUser.bannedReason}</span></p>
             )}
           </div>
 
@@ -766,7 +754,7 @@ export default function App() {
             </button>
           )}
 
-          <NotificationsDropdown userId={currentUser?.userId || ""} userRole={currentUser?.role || "user"} />
+          <NotificationsDropdown userId={activeUser.userId || ""} userRole={activeUser.role || "user"} />
           
           <button
             onClick={handleLogout}
@@ -801,7 +789,7 @@ export default function App() {
 
         {/* Active Content Panel */}
         <main className="flex-1 p-4 sm:p-6 md:p-8 bg-linear-to-b from-slate-950 via-zinc-950/20 to-black overflow-y-auto">
-          {maintenanceMode && currentUser?.role !== "founder" && currentUser?.role !== "admin" ? (
+          {maintenanceMode && activeUser.role !== "founder" && activeUser.role !== "admin" ? (
             <div className="flex flex-col items-center justify-center h-64 space-y-4 max-w-md mx-auto text-center py-20 animate-fade-in">
               <AlertCircle className="w-16 h-16 text-amber-500 animate-pulse" />
               <h2 className="text-xl font-display font-black text-zinc-100 uppercase tracking-tight">Maintenance Mode Activated</h2>
@@ -814,27 +802,27 @@ export default function App() {
               {/* Profile Top bar */}
               <div className="flex flex-col sm:flex-row items-center justify-between p-5 rounded-2xl glass-panel border border-zinc-800 shadow-xl gap-4">
                 <div className="flex items-center space-x-4">
-                  {currentUser?.profilePic ? (
+                  {activeUser.profilePic ? (
                     <img
-                      src={currentUser.profilePic}
-                      alt={currentUser.username || "User"}
+                      src={activeUser.profilePic}
+                      alt={activeUser.username || "User"}
                       className="w-14 h-14 rounded-xl object-cover border border-zinc-800"
                       referrerPolicy="no-referrer"
                     />
                   ) : (
                     <div className="w-14 h-14 rounded-xl bg-gradient-to-tr from-zinc-800 to-zinc-900 border border-zinc-700/60 flex items-center justify-center font-display font-extrabold text-zinc-300 text-lg">
-                      {(currentUser?.username || "U").charAt(0).toUpperCase()}
+                      {(activeUser.username || "U").charAt(0).toUpperCase()}
                     </div>
                   )}
                   <div className="font-sans space-y-0.5">
                     <div className="flex items-center space-x-2">
-                      <h2 className="text-base font-display font-bold text-zinc-100">{currentUser?.username || "User"}</h2>
+                      <h2 className="text-base font-display font-bold text-zinc-100">{activeUser.username || "User"}</h2>
                       <span className="text-[9px] uppercase tracking-widest font-bold bg-amber-500/10 border border-amber-500/30 text-amber-400 px-1.5 py-0.5 rounded-sm">
-                        {currentUser?.accountStatus || "Active"}
+                        {activeUser.accountStatus || "Active"}
                       </span>
                     </div>
-                    <p className="text-[10px] text-zinc-500 font-mono">Affiliate User ID: {currentUser?.customUserId || currentUser?.userId || "N/A"}</p>
-                    <p className="text-[10px] text-zinc-400">Join Date: {currentUser?.joinDate || "N/A"}</p>
+                    <p className="text-[10px] text-zinc-500 font-mono">Affiliate User ID: {activeUser.customUserId || activeUser.userId || "N/A"}</p>
+                    <p className="text-[10px] text-zinc-400">Join Date: {activeUser.joinDate || "N/A"}</p>
                   </div>
                 </div>
 
@@ -842,14 +830,14 @@ export default function App() {
                   <div className="text-center bg-slate-950/65 px-4 py-2 rounded-xl border border-zinc-900">
                     <span className="text-[8px] uppercase tracking-wider text-zinc-500 font-mono block">Achievement level</span>
                     <span className="text-xs font-display font-bold text-amber-400">
-                      {badges.find(b => b.name === currentUser?.badge)?.icon || "★"}{" "}
-                      {(currentUser?.customBadge || currentUser?.badge || "Bronze").toUpperCase()} Badge
+                      {badges.find(b => b.name === activeUser.badge)?.icon || "★"}{" "}
+                      {(activeUser.customBadge || activeUser.badge || "Bronze").toUpperCase()} Badge
                     </span>
                   </div>
-                  {currentUser && (currentUser as any).customRank && (
+                  {(activeUser as any).customRank && (
                     <div className="text-center bg-slate-950/65 px-4 py-2 rounded-xl border border-zinc-900">
                       <span className="text-[8px] uppercase tracking-wider text-zinc-500 font-mono block">Custom Rank</span>
-                      <span className="text-xs font-display font-bold text-emerald-400">{(currentUser as any).customRank}</span>
+                      <span className="text-xs font-display font-bold text-emerald-400">{(activeUser as any).customRank}</span>
                     </div>
                   )}
                 </div>
@@ -866,25 +854,25 @@ export default function App() {
                   <div className="bg-zinc-950/35 border border-zinc-900/80 rounded-xl p-4 space-y-2 hover:border-zinc-800 transition-colors">
                     <span className="text-[10px] uppercase font-mono text-zinc-500 tracking-wider block">Today's Earnings</span>
                     <div className="text-xl font-display">
-                      <AnimatedCounter value={currentUser?.todayEarnings || 0} />
+                      <AnimatedCounter value={activeUser.todayEarnings || 0} />
                     </div>
                   </div>
                   <div className="bg-zinc-950/35 border border-zinc-900/80 rounded-xl p-4 space-y-2 hover:border-zinc-800 transition-colors">
                     <span className="text-[10px] uppercase font-mono text-zinc-500 tracking-wider block">Last 7 Days Earnings</span>
                     <div className="text-xl font-display">
-                      <AnimatedCounter value={currentUser?.last7DaysEarnings || 0} />
+                      <AnimatedCounter value={activeUser.last7DaysEarnings || 0} />
                     </div>
                   </div>
                   <div className="bg-zinc-950/35 border border-zinc-900/80 rounded-xl p-4 space-y-2 hover:border-zinc-800 transition-colors">
                     <span className="text-[10px] uppercase font-mono text-zinc-500 tracking-wider block">Last 30 Days Earnings</span>
                     <div className="text-xl font-display">
-                      <AnimatedCounter value={currentUser?.last30DaysEarnings || 0} />
+                      <AnimatedCounter value={activeUser.last30DaysEarnings || 0} />
                     </div>
                   </div>
                   <div className="bg-zinc-950/35 border border-zinc-900/80 rounded-xl p-4 space-y-2 hover:border-zinc-800 transition-colors">
                     <span className="text-[10px] uppercase font-mono text-zinc-500 tracking-wider block">Lifetime Cumulative Earnings</span>
                     <div className="text-xl font-display">
-                      <AnimatedCounter value={currentUser?.totalEarnings || 0} />
+                      <AnimatedCounter value={activeUser.totalEarnings || 0} />
                     </div>
                   </div>
                 </div>
@@ -893,7 +881,7 @@ export default function App() {
               {/* Wallet Card Center Stage */}
               <div className="flex flex-col items-center space-y-4 pt-4 border-t border-zinc-900 pb-4">
                 <h3 className="text-xs font-mono uppercase tracking-widest text-zinc-500">Premium Wallet Balance Card</h3>
-                <WalletCard balance={currentUser?.walletBalance ?? 0} username={currentUser?.username || "User"} />
+                <WalletCard balance={activeUser.walletBalance ?? 0} username={activeUser.username || "User"} />
               </div>
 
               {/* Dashboard Social Footer */}
@@ -905,39 +893,39 @@ export default function App() {
           )}
 
           {activePage === "payment" && (
-            <PaymentRequestSection user={currentUser} />
+            <PaymentRequestSection user={activeUser} />
           )}
 
           {activePage === "withdrawal" && (
-            <WithdrawalSection user={currentUser} onUpdateUser={handleUpdateLocalUser} />
+            <WithdrawalSection user={activeUser} onUpdateUser={handleUpdateLocalUser} />
           )}
 
           {activePage === "history" && (
-            <HistoryPage user={currentUser} />
+            <HistoryPage user={activeUser} />
           )}
 
           {activePage === "leaderboard" && (
-            <Leaderboard currentUser={currentUser} />
+            <Leaderboard currentUser={activeUser} />
           )}
 
           {activePage === "challenge" && (
-            <ChallengesSection user={currentUser} onUpdateUser={handleUpdateLocalUser} />
+            <ChallengesSection user={activeUser} onUpdateUser={handleUpdateLocalUser} />
           )}
 
           {activePage === "kyc" && (
-            <KYCSection user={currentUser} onUpdateUser={handleUpdateLocalUser} />
+            <KYCSection user={activeUser} onUpdateUser={handleUpdateLocalUser} />
           )}
 
           {activePage === "services" && (
-            <ServicesPage user={currentUser} onUpdateUser={handleUpdateLocalUser} />
+            <ServicesPage user={activeUser} onUpdateUser={handleUpdateLocalUser} />
           )}
 
           {activePage === "profile" && (
-            <ProfileSection user={currentUser} onUpdateUser={handleUpdateLocalUser} />
+            <ProfileSection user={activeUser} onUpdateUser={handleUpdateLocalUser} />
           )}
 
-          {activePage === "admin" && (currentUser.role === "admin" || currentUser.role === "founder" || currentUser.role === "co-founder" || currentUser.role === "co_founder") && (
-            <AdminPanel adminUser={currentUser} />
+          {activePage === "admin" && (activeUser.role === "admin" || activeUser.role === "founder" || activeUser.role === "co-founder" || activeUser.role === "co_founder") && (
+            <AdminPanel adminUser={activeUser} />
           )}
 
           {activePage.startsWith("custom_page_") && (() => {
