@@ -339,20 +339,26 @@ export default function App() {
             const userSnap = await getDoc(userRef);
             if (userSnap.exists()) {
               const userData = userSnap.data() as UserProfile;
-              if (
-                userData.todayEarnings !== rolling.todayEarnings ||
-                userData.last7DaysEarnings !== rolling.last7DaysEarnings ||
-                userData.last30DaysEarnings !== rolling.last30DaysEarnings ||
-                userData.totalEarnings !== rolling.totalEarnings ||
-                userData.todayEarningsDate !== rolling.todayEarningsDate
-              ) {
-                await updateDoc(userRef, {
-                  todayEarnings: rolling.todayEarnings,
-                  last7DaysEarnings: rolling.last7DaysEarnings,
-                  last30DaysEarnings: rolling.last30DaysEarnings,
-                  totalEarnings: rolling.totalEarnings,
-                  todayEarningsDate: rolling.todayEarningsDate
-                });
+              const updates: Partial<UserProfile> = {};
+
+              if (userData.todayEarnings !== rolling.todayEarnings) {
+                updates.todayEarnings = rolling.todayEarnings;
+              }
+              if (userData.last7DaysEarnings !== rolling.last7DaysEarnings) {
+                updates.last7DaysEarnings = rolling.last7DaysEarnings;
+              }
+              if (userData.last30DaysEarnings !== rolling.last30DaysEarnings) {
+                updates.last30DaysEarnings = rolling.last30DaysEarnings;
+              }
+              if (userData.todayEarningsDate !== rolling.todayEarningsDate) {
+                updates.todayEarningsDate = rolling.todayEarningsDate;
+              }
+              if (userData.totalEarnings === undefined || userData.totalEarnings === null) {
+                updates.totalEarnings = rolling.totalEarnings;
+              }
+
+              if (Object.keys(updates).length > 0) {
+                await updateDoc(userRef, updates);
               }
             }
           } catch (err) {
