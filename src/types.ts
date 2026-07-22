@@ -306,6 +306,12 @@ export interface Service {
   status: "Active" | "Inactive";
   thumbnail?: string;
   createdAt: any;
+  durationType?: "Lifetime" | "Fixed";
+  durationValue?: number;
+  durationUnit?: "Days" | "Months";
+  features?: string[];
+  benefits?: string[];
+  buttonText?: string;
 }
 
 export interface ServicePurchase {
@@ -316,8 +322,18 @@ export interface ServicePurchase {
   serviceName: string;
   price: number;
   purchaseDate: string;
+  purchaseTimestamp?: number;
+  expiryDate?: string;
+  expiryTimestamp?: number | null;
+  remainingDays?: number;
+  durationType?: "Lifetime" | "Fixed";
+  durationValue?: number;
+  durationUnit?: "Days" | "Months";
+  description?: string;
+  features?: string[];
+  benefits?: string[];
+  status: "Active" | "Expired" | string;
   timestamp: any;
-  status: string;
   hiddenByUser?: boolean;
 }
 

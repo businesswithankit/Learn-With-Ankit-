@@ -192,6 +192,19 @@ export default function ServicesPage({ user, onUpdateUser }: ServicesPageProps) 
           updatedAt: serverTimestamp()
         });
 
+        // Calculate duration and expiry
+        const nowMs = Date.now();
+        let expiryTimestampVal: number | null = null;
+        let expiryDateStr = "Lifetime";
+
+        if (selectedService.durationType === "Fixed" && selectedService.durationValue) {
+          const days = selectedService.durationUnit === "Months"
+            ? selectedService.durationValue * 30
+            : selectedService.durationValue;
+          expiryTimestampVal = nowMs + (days * 86400000);
+          expiryDateStr = new Date(expiryTimestampVal).toLocaleDateString("en-IN");
+        }
+
         // Create Purchase Log
         transaction.set(purchaseRef, {
           userId: user.userId,
@@ -200,8 +213,17 @@ export default function ServicesPage({ user, onUpdateUser }: ServicesPageProps) 
           serviceName: selectedService.name,
           price: selectedService.price,
           purchaseDate: new Date().toLocaleDateString("en-IN"),
+          purchaseTimestamp: nowMs,
+          expiryDate: expiryDateStr,
+          expiryTimestamp: expiryTimestampVal,
+          durationType: selectedService.durationType || "Lifetime",
+          durationValue: selectedService.durationValue || null,
+          durationUnit: selectedService.durationUnit || null,
+          description: selectedService.description || "",
+          features: selectedService.features || [],
+          benefits: selectedService.benefits || [],
+          status: "Active",
           timestamp: serverTimestamp(),
-          status: "Purchased",
           hiddenByUser: false,
         });
 
@@ -391,13 +413,17 @@ export default function ServicesPage({ user, onUpdateUser }: ServicesPageProps) 
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 {services.map((service) => {
                   const isPurchased = allPurchasedServiceIds.has(service.id);
+                  const durationBadgeText = service.durationType === "Fixed" && service.durationValue
+                    ? `${service.durationValue} ${service.durationUnit} Access`
+                    : "Lifetime Access";
+
                   return (
                     <div
                       key={service.id}
                       className="bg-zinc-950/30 border border-zinc-900 rounded-2xl overflow-hidden hover:border-zinc-800/80 transition-all duration-300 flex flex-col justify-between group"
                     >
-                      {/* Thumbnail */}
-                      <div className="h-40 bg-zinc-900 relative overflow-hidden">
+                      {/* Thumbnail & Badges */}
+                      <div className="h-44 bg-zinc-900 relative overflow-hidden">
                         {service.thumbnail ? (
                           <img
                             src={service.thumbnail}
@@ -406,24 +432,63 @@ export default function ServicesPage({ user, onUpdateUser }: ServicesPageProps) 
                             referrerPolicy="no-referrer"
                           />
                         ) : (
-                          <div className="w-full h-full bg-gradient-to-br from-zinc-900 to-black flex items-center justify-center">
+                          <div className="w-full h-full bg-gradient-to-br from-zinc-900 via-slate-950 to-black flex items-center justify-center">
                             <Sparkles className="w-10 h-10 text-zinc-700 group-hover:text-amber-500/35 transition-colors" />
                           </div>
                         )}
-                        <div className="absolute top-3 right-3 bg-slate-950/90 text-amber-500 border border-zinc-800 font-bold font-mono text-xs px-2.5 py-1 rounded-lg">
-                          ₹{service.price}
+                        <div className="absolute top-3 left-3 bg-amber-500/10 text-amber-400 border border-amber-500/25 font-bold font-mono text-[10px] px-2.5 py-1 rounded-lg backdrop-blur-md uppercase tracking-wider">
+                          {durationBadgeText}
+                        </div>
+                        <div className="absolute top-3 right-3 bg-slate-950/90 text-amber-400 border border-zinc-800 font-black font-mono text-xs px-2.5 py-1 rounded-lg">
+                          ₹{service.price.toLocaleString("en-IN")}
                         </div>
                       </div>
 
                       {/* Content */}
                       <div className="p-5 flex-1 flex flex-col justify-between space-y-4">
-                        <div className="space-y-1.5">
-                          <h4 className="font-bold text-sm text-zinc-200 group-hover:text-zinc-100 transition-colors">
+                        <div className="space-y-3">
+                          <h4 className="font-bold text-sm text-zinc-100 group-hover:text-amber-400 transition-colors">
                             {service.name}
                           </h4>
-                          <p className="text-[11px] text-zinc-400 leading-relaxed line-clamp-3">
-                            {service.description}
-                          </p>
+
+                          {service.description && (
+                            <p className="text-[11px] text-zinc-400 leading-relaxed">
+                              {service.description}
+                            </p>
+                          )}
+
+                          {/* Features list */}
+                          {service.features && service.features.length > 0 && (
+                            <div className="space-y-1 pt-1 border-t border-zinc-900">
+                              <span className="text-[9px] uppercase font-mono tracking-wider text-zinc-500 font-bold block">
+                                Service Features
+                              </span>
+                              <div className="flex flex-wrap gap-1">
+                                {service.features.map((feat, fIdx) => (
+                                  <span key={fIdx} className="bg-zinc-900/80 border border-zinc-800/80 px-2 py-0.5 rounded-md text-[10px] text-zinc-300">
+                                    • {feat}
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Benefits checklist */}
+                          {service.benefits && service.benefits.length > 0 && (
+                            <div className="space-y-1.5 pt-1 border-t border-zinc-900">
+                              <span className="text-[9px] uppercase font-mono tracking-wider text-zinc-500 font-bold block">
+                                Included Benefits
+                              </span>
+                              <ul className="space-y-1 text-[11px] text-zinc-300">
+                                {service.benefits.map((benefit, bIdx) => (
+                                  <li key={bIdx} className="flex items-start space-x-1.5 text-zinc-300">
+                                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" />
+                                    <span className="leading-tight">{benefit}</span>
+                                  </li>
+                                ))}
+                              </ul>
+                            </div>
+                          )}
                         </div>
 
                         {/* Action button */}
@@ -435,10 +500,10 @@ export default function ServicesPage({ user, onUpdateUser }: ServicesPageProps) 
                         ) : (
                           <button
                             onClick={() => setSelectedService(service)}
-                            className="w-full py-2.5 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-[10px] rounded-xl uppercase tracking-wider cursor-pointer transition-all duration-300 flex items-center justify-center space-x-1"
+                            className="w-full py-2.5 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-[10px] rounded-xl uppercase tracking-wider cursor-pointer transition-all duration-300 flex items-center justify-center space-x-1.5 shadow-lg shadow-amber-500/10"
                           >
                             <CreditCard className="w-4 h-4" />
-                            <span>Buy Service</span>
+                            <span>{service.buttonText || "Buy Service"}</span>
                           </button>
                         )}
                       </div>
@@ -449,11 +514,11 @@ export default function ServicesPage({ user, onUpdateUser }: ServicesPageProps) 
             )}
           </div>
 
-          {/* User Service Purchase History Section */}
-          <div className="border-t border-zinc-900 pt-8">
-            <h3 className="text-xs uppercase tracking-widest font-mono text-zinc-500 mb-4 flex items-center space-x-2">
-              <History className="w-4 h-4 text-zinc-400" />
-              <span>Service Purchase History</span>
+          {/* User Service Purchase History / Active Subscriptions Section */}
+          <div className="border-t border-zinc-900 pt-8 space-y-4">
+            <h3 className="text-xs uppercase tracking-widest font-mono text-zinc-400 flex items-center space-x-2">
+              <Layers className="w-4 h-4 text-amber-500" />
+              <span>My Purchased Services & Subscriptions</span>
             </h3>
 
             {purchases.length === 0 ? (
@@ -461,43 +526,82 @@ export default function ServicesPage({ user, onUpdateUser }: ServicesPageProps) 
                 You haven't purchased any services yet.
               </div>
             ) : (
-              <div className="bg-zinc-950/40 border border-zinc-900 rounded-2xl overflow-hidden">
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left border-collapse">
-                    <thead>
-                      <tr className="border-b border-zinc-900 bg-zinc-950/80 text-[10px] uppercase font-mono tracking-wider text-zinc-500">
-                        <th className="py-3.5 px-4 font-semibold">Service Name</th>
-                        <th className="py-3.5 px-4 font-semibold">Price Paid</th>
-                        <th className="py-3.5 px-4 font-semibold">Purchase Date</th>
-                        <th className="py-3.5 px-4 font-semibold">Status</th>
-                        <th className="py-3.5 px-4 font-semibold text-right">Action</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-zinc-900 text-xs text-zinc-300">
-                      {purchases.map((purchase) => (
-                        <tr key={purchase.id} className="hover:bg-zinc-900/10 transition-colors">
-                          <td className="py-3.5 px-4 font-semibold text-zinc-200">{purchase.serviceName}</td>
-                          <td className="py-3.5 px-4 font-mono">₹{purchase.price}</td>
-                          <td className="py-3.5 px-4 text-zinc-400 font-mono">{purchase.purchaseDate}</td>
-                          <td className="py-3.5 px-4">
-                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[9px] font-bold font-mono uppercase bg-emerald-500/15 text-emerald-400 border border-emerald-500/10">
-                              {purchase.status || "Purchased"}
-                            </span>
-                          </td>
-                          <td className="py-3.5 px-4 text-right">
-                            <button
-                              onClick={() => setDeletingPurchase(purchase)}
-                              className="p-1.5 hover:bg-red-500/10 border border-transparent hover:border-red-500/20 text-zinc-500 hover:text-red-400 rounded-lg transition-all duration-300 cursor-pointer"
-                              title="Delete History Record"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {purchases.map((purchase) => {
+                  const now = Date.now();
+                  let remainingStr = "Lifetime Access";
+                  let isExpired = purchase.status === "Expired";
+
+                  if (purchase.durationType === "Fixed" && purchase.expiryTimestamp) {
+                    const diffDays = Math.ceil((purchase.expiryTimestamp - now) / (1000 * 60 * 60 * 24));
+                    if (diffDays <= 0 || purchase.status === "Expired") {
+                      remainingStr = "0 Days (Expired)";
+                      isExpired = true;
+                    } else {
+                      remainingStr = `${diffDays} Days Remaining`;
+                    }
+                  } else if (!purchase.durationType || purchase.durationType === "Lifetime") {
+                    remainingStr = "Lifetime Access";
+                  }
+
+                  return (
+                    <div key={purchase.id} className="bg-zinc-950/40 border border-zinc-800/80 rounded-2xl p-5 flex flex-col justify-between space-y-4 relative overflow-hidden">
+                      <div className="space-y-3">
+                        <div className="flex justify-between items-start">
+                          <div>
+                            <h4 className="font-bold text-sm text-zinc-100">{purchase.serviceName}</h4>
+                            <div className="text-[10px] text-zinc-400 font-mono mt-0.5">
+                              Purchased on: <span className="text-zinc-200">{purchase.purchaseDate}</span>
+                            </div>
+                          </div>
+                          <span className={`inline-flex px-2.5 py-1 rounded-lg text-[9px] font-mono font-bold uppercase ${
+                            isExpired ? "bg-red-500/15 text-red-400 border border-red-500/20" : "bg-emerald-500/15 text-emerald-400 border border-emerald-500/20"
+                          }`}>
+                            {isExpired ? "Expired" : "Active"}
+                          </span>
+                        </div>
+
+                        {/* Duration & Expiry Banner */}
+                        <div className="p-2.5 bg-zinc-900/60 border border-zinc-850 rounded-xl flex items-center justify-between text-[10px] font-mono">
+                          <span className="text-zinc-400">Validity Expiry: <strong className="text-zinc-200">{purchase.expiryDate || "Lifetime"}</strong></span>
+                          <span className={`font-bold ${isExpired ? "text-red-400" : "text-amber-400"}`}>{remainingStr}</span>
+                        </div>
+
+                        {/* Description */}
+                        {purchase.description && (
+                          <p className="text-[11px] text-zinc-400 leading-relaxed line-clamp-2">
+                            {purchase.description}
+                          </p>
+                        )}
+
+                        {/* Features */}
+                        {purchase.features && purchase.features.length > 0 && (
+                          <div className="space-y-1">
+                            <span className="text-[9px] font-mono uppercase text-zinc-500 font-bold block">Features:</span>
+                            <div className="flex flex-wrap gap-1">
+                              {purchase.features.map((f, idx) => (
+                                <span key={idx} className="bg-zinc-900 border border-zinc-800/80 px-2 py-0.5 rounded text-[9px] text-zinc-300">
+                                  • {f}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="pt-3 border-t border-zinc-900/80 flex justify-between items-center text-[10px] font-mono text-zinc-500">
+                        <span>Paid: <strong className="text-emerald-400">₹{purchase.price}</strong></span>
+                        <button
+                          onClick={() => setDeletingPurchase(purchase)}
+                          className="p-1.5 hover:bg-red-500/10 text-zinc-500 hover:text-red-400 rounded-lg transition-colors cursor-pointer"
+                          title="Hide Record from Dashboard"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             )}
           </div>
@@ -534,10 +638,18 @@ export default function ServicesPage({ user, onUpdateUser }: ServicesPageProps) 
                 <div className="bg-zinc-900/50 border border-zinc-850 p-3 rounded-2xl space-y-1.5 font-mono">
                   <div className="flex justify-between">
                     <span className="text-zinc-500">Service Price:</span>
-                    <span className="text-zinc-200 font-semibold">₹{selectedService.price}</span>
+                    <span className="text-amber-400 font-semibold">₹{selectedService.price}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-zinc-500">Validity Period:</span>
+                    <span className="text-zinc-200 font-semibold">
+                      {selectedService.durationType === "Fixed" && selectedService.durationValue
+                        ? `${selectedService.durationValue} ${selectedService.durationUnit}`
+                        : "Lifetime Access"}
+                    </span>
                   </div>
                   <div className="flex justify-between border-t border-zinc-800/80 pt-1.5 mt-1.5">
-                    <span className="text-zinc-500">Your Balance:</span>
+                    <span className="text-zinc-500">Your Wallet Balance:</span>
                     <span className="text-zinc-200 font-semibold">₹{user.walletBalance.toLocaleString("en-IN")}</span>
                   </div>
                 </div>

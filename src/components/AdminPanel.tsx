@@ -268,6 +268,16 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
   const [servicePrice, setServicePrice] = useState<number | "">("");
   const [serviceStatus, setServiceStatus] = useState<"Active" | "Inactive">("Active");
   const [serviceThumbnail, setServiceThumbnail] = useState("");
+  const [serviceDurationType, setServiceDurationType] = useState<"Lifetime" | "Fixed">("Lifetime");
+  const [serviceDurationValue, setServiceDurationValue] = useState<number | "">("");
+  const [serviceDurationUnit, setServiceDurationUnit] = useState<"Days" | "Months">("Days");
+  const [serviceFeatures, setServiceFeatures] = useState("");
+  const [serviceBenefits, setServiceBenefits] = useState("");
+  const [serviceButtonText, setServiceButtonText] = useState("Buy Now");
+
+  // Purchased services search/filter states
+  const [purchasedSearchTerm, setPurchasedSearchTerm] = useState("");
+  const [purchasedStatusFilter, setPurchasedStatusFilter] = useState("All");
 
   // Membership form state
   const [editingPlan, setEditingPlan] = useState<MembershipPlan | null>(null);
@@ -2427,31 +2437,53 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
   };
 
   // --- SERVICES ADMINISTRATION CONTROLLERS ---
+  const resetServiceForm = () => {
+    setEditingService(null);
+    setServiceName("");
+    setServiceDescription("");
+    setServicePrice("");
+    setServiceStatus("Active");
+    setServiceThumbnail("");
+    setServiceDurationType("Lifetime");
+    setServiceDurationValue("");
+    setServiceDurationUnit("Days");
+    setServiceFeatures("");
+    setServiceBenefits("");
+    setServiceButtonText("Buy Now");
+  };
+
   const handleSaveService = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!serviceName.trim() || servicePrice === "") return;
 
     setActionLoading("save_service");
     try {
+      const featuresArr = serviceFeatures.split("\n").map(s => s.trim()).filter(Boolean);
+      const benefitsArr = serviceBenefits.split("\n").map(s => s.trim()).filter(Boolean);
+
+      const servicePayload = {
+        name: serviceName.trim(),
+        description: serviceDescription.trim(),
+        price: Number(servicePrice),
+        status: serviceStatus,
+        thumbnail: serviceThumbnail.trim(),
+        durationType: serviceDurationType,
+        durationValue: serviceDurationType === "Fixed" ? (Number(serviceDurationValue) || 1) : null,
+        durationUnit: serviceDurationType === "Fixed" ? serviceDurationUnit : null,
+        features: featuresArr,
+        benefits: benefitsArr,
+        buttonText: serviceButtonText.trim() || "Buy Now",
+      };
+
       if (editingService) {
         // Edit Service
-        await updateDoc(doc(db, "services", editingService.id), {
-          name: serviceName.trim(),
-          description: serviceDescription.trim(),
-          price: Number(servicePrice),
-          status: serviceStatus,
-          thumbnail: serviceThumbnail.trim(),
-        });
+        await updateDoc(doc(db, "services", editingService.id), servicePayload);
         await writeAuditLog("Service Edited", "System", `Edited premium service details: "${serviceName.trim()}" (Price: ₹${servicePrice})`);
         alert("Service updated successfully!");
       } else {
         // Create Service
         await addDoc(collection(db, "services"), {
-          name: serviceName.trim(),
-          description: serviceDescription.trim(),
-          price: Number(servicePrice),
-          status: serviceStatus,
-          thumbnail: serviceThumbnail.trim(),
+          ...servicePayload,
           createdDate: new Date().toLocaleDateString("en-IN"),
           createdAt: serverTimestamp(),
         });
@@ -2459,16 +2491,121 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
         alert("Service created successfully!");
       }
       
-      // Clear form
-      setEditingService(null);
-      setServiceName("");
-      setServiceDescription("");
-      setServicePrice("");
-      setServiceStatus("Active");
-      setServiceThumbnail("");
+      resetServiceForm();
     } catch (err: any) {
       console.error(err);
       alert("Failed to save service: " + err.message);
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  // --- PURCHASED SERVICE MANAGEMENT CONTROLLERS ---
+  const handleExtendServicePurchase = async (p: ServicePurchase) => {
+    const daysInput = prompt(`Extend duration for "${p.serviceName}" (User: ${p.username}).\nEnter number of days to ADD:`, "30");
+    if (!daysInput) return;
+    const daysToAdd = parseInt(daysInput, 10);
+    if (isNaN(daysToAdd) || daysToAdd <= 0) {
+      alert("Invalid number of days entered.");
+      return;
+    }
+
+    setActionLoading(`extend_purchase_${p.id}`);
+    try {
+      const currentMs = p.expiryTimestamp && p.expiryTimestamp > Date.now() ? p.expiryTimestamp : Date.now();
+      const newExpiryMs = currentMs + (daysToAdd * 86400000);
+      const newExpiryStr = new Date(newExpiryMs).toLocaleDateString("en-IN");
+
+      await updateDoc(doc(db, "servicePurchases", p.id), {
+        status: "Active",
+        expiryDate: newExpiryStr,
+        expiryTimestamp: newExpiryMs,
+        durationType: "Fixed"
+      });
+      await writeAuditLog("Service Purchase Extended", "System", `Extended duration of service "${p.serviceName}" for ${p.username} by ${daysToAdd} days`);
+      alert(`Service extended by ${daysToAdd} days successfully!`);
+    } catch (err: any) {
+      alert("Failed to extend duration: " + err.message);
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleReduceServicePurchase = async (p: ServicePurchase) => {
+    const daysInput = prompt(`Reduce duration for "${p.serviceName}" (User: ${p.username}).\nEnter number of days to REDUCE/SUBTRACT:`, "7");
+    if (!daysInput) return;
+    const daysToSubtract = parseInt(daysInput, 10);
+    if (isNaN(daysToSubtract) || daysToSubtract <= 0) {
+      alert("Invalid number of days entered.");
+      return;
+    }
+
+    setActionLoading(`reduce_purchase_${p.id}`);
+    try {
+      const currentMs = p.expiryTimestamp && p.expiryTimestamp > Date.now() ? p.expiryTimestamp : Date.now();
+      const newExpiryMs = Math.max(Date.now(), currentMs - (daysToSubtract * 86400000));
+      const isExpiredNow = newExpiryMs <= Date.now();
+      const newExpiryStr = new Date(newExpiryMs).toLocaleDateString("en-IN");
+
+      await updateDoc(doc(db, "servicePurchases", p.id), {
+        status: isExpiredNow ? "Expired" : "Active",
+        expiryDate: newExpiryStr,
+        expiryTimestamp: newExpiryMs,
+      });
+      await writeAuditLog("Service Purchase Reduced", "System", `Reduced duration of service "${p.serviceName}" for ${p.username} by ${daysToSubtract} days`);
+      alert(`Service duration reduced by ${daysToSubtract} days.`);
+    } catch (err: any) {
+      alert("Failed to reduce duration: " + err.message);
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleExpireServicePurchase = async (p: ServicePurchase) => {
+    if (!window.confirm(`Are you sure you want to expire service "${p.serviceName}" for user "${p.username}" immediately?`)) return;
+
+    setActionLoading(`expire_purchase_${p.id}`);
+    try {
+      await updateDoc(doc(db, "servicePurchases", p.id), {
+        status: "Expired",
+        expiryDate: new Date().toLocaleDateString("en-IN"),
+        expiryTimestamp: Date.now(),
+      });
+      await writeAuditLog("Service Expired Immediately", "System", `Immediately expired service "${p.serviceName}" for user "${p.username}"`);
+      alert("Service purchase marked as Expired!");
+    } catch (err: any) {
+      alert("Failed to expire service: " + err.message);
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleRenewServicePurchase = async (p: ServicePurchase) => {
+    if (!window.confirm(`Renew service "${p.serviceName}" for user "${p.username}" starting from today?`)) return;
+
+    setActionLoading(`renew_purchase_${p.id}`);
+    try {
+      const now = Date.now();
+      let newExpiryMs: number | null = null;
+      let newExpiryStr = "Lifetime";
+
+      if (p.durationType === "Fixed" && p.durationValue) {
+        const days = p.durationUnit === "Months" ? p.durationValue * 30 : p.durationValue;
+        newExpiryMs = now + (days * 86400000);
+        newExpiryStr = new Date(newExpiryMs).toLocaleDateString("en-IN");
+      }
+
+      await updateDoc(doc(db, "servicePurchases", p.id), {
+        status: "Active",
+        purchaseDate: new Date().toLocaleDateString("en-IN"),
+        purchaseTimestamp: now,
+        expiryDate: newExpiryStr,
+        expiryTimestamp: newExpiryMs,
+      });
+      await writeAuditLog("Service Purchase Renewed", "System", `Renewed service "${p.serviceName}" for user "${p.username}"`);
+      alert("Service purchase renewed successfully!");
+    } catch (err: any) {
+      alert("Failed to renew service: " + err.message);
     } finally {
       setActionLoading(null);
     }
@@ -5513,101 +5650,192 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
       {/* SERVICES MANAGER TAB */}
       {activeTab === "services" && (
         <div className="space-y-6 animate-fade-in font-sans">
-          {/* Create/Edit Form */}
+          {/* Upgrade Form: Matching Membership Plan Form */}
           <div className="bg-slate-950/20 border border-zinc-850 rounded-2xl p-6 shadow-xl space-y-4">
             <h3 className="text-sm font-display font-semibold text-zinc-100 uppercase tracking-wider flex items-center space-x-2">
               <Sparkles className="w-5 h-5 text-amber-500" />
-              <span>{editingService ? "Edit Service Configuration" : "Add New Premium Service"}</span>
+              <span>{editingService ? "Edit Service Plan" : "Create New Premium Service"}</span>
             </h3>
-            <p className="text-xs text-zinc-400">
-              Create services that users can purchase directly from their wallet balances.
+            <p className="text-[11px] text-zinc-400">
+              Configure premium service pricing, duration, features, description, and benefits summary.
             </p>
 
-            <form onSubmit={handleSaveService} className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2">
-              <div className="space-y-2">
-                <label className="text-[10px] uppercase font-mono tracking-wider text-zinc-400">Service Name *</label>
+            <form onSubmit={handleSaveService} className="space-y-4 text-xs font-sans">
+              <div>
+                <label className="block text-[10px] text-zinc-400 font-mono uppercase tracking-wider mb-1">Service Name *</label>
                 <input
                   type="text"
                   required
+                  placeholder="e.g. Priority 1-on-1 Mentorship"
                   value={serviceName}
                   onChange={(e) => setServiceName(e.target.value)}
-                  placeholder="e.g. Premium Support, 1-on-1 Consultation"
-                  className="w-full bg-slate-950/60 border border-zinc-800 rounded-lg p-2 text-xs text-zinc-200 focus:outline-none focus:border-red-500"
+                  className="w-full bg-slate-950 border border-zinc-800 rounded-xl py-2 px-3 text-zinc-200"
                 />
               </div>
 
-              <div className="space-y-2">
-                <label className="text-[10px] uppercase font-mono tracking-wider text-zinc-400">Price (INR) *</label>
-                <input
-                  type="number"
-                  required
-                  min="0"
-                  value={servicePrice}
-                  onChange={(e) => setServicePrice(e.target.value === "" ? "" : Number(e.target.value))}
-                  placeholder="e.g. 499"
-                  className="w-full bg-slate-950/60 border border-zinc-800 rounded-lg p-2 text-xs text-zinc-200 focus:outline-none focus:border-red-500 font-mono"
-                />
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[10px] text-zinc-400 font-mono uppercase tracking-wider mb-1">Price (₹) *</label>
+                  <input
+                    type="number"
+                    required
+                    min="0"
+                    placeholder="e.g. 499"
+                    value={servicePrice}
+                    onChange={(e) => setServicePrice(e.target.value === "" ? "" : Number(e.target.value))}
+                    className="w-full bg-slate-950 border border-zinc-800 rounded-xl py-2 px-3 text-zinc-200 font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] text-zinc-400 font-mono uppercase tracking-wider mb-1">Availability Status</label>
+                  <select
+                    value={serviceStatus}
+                    onChange={(e) => setServiceStatus(e.target.value as any)}
+                    className="w-full bg-slate-950 border border-zinc-800 rounded-xl py-2 px-3 text-zinc-200"
+                  >
+                    <option value="Active">Active / Visible</option>
+                    <option value="Inactive">Inactive / Suspended</option>
+                  </select>
+                </div>
               </div>
 
-              <div className="space-y-2 md:col-span-2">
-                <label className="text-[10px] uppercase font-mono tracking-wider text-zinc-400">Service Description</label>
-                <textarea
-                  value={serviceDescription}
-                  onChange={(e) => setServiceDescription(e.target.value)}
-                  placeholder="Describe what the user gets when they purchase this premium service..."
-                  rows={3}
-                  className="w-full bg-slate-950/60 border border-zinc-800 rounded-lg p-2 text-xs text-zinc-200 focus:outline-none focus:border-red-500"
-                />
-              </div>
-
-              <div className="space-y-2">
-                <label className="text-[10px] uppercase font-mono tracking-wider text-zinc-400">Thumbnail Image URL</label>
+              <div>
+                <label className="block text-[10px] text-zinc-400 font-mono uppercase tracking-wider mb-1">Thumbnail Image URL</label>
                 <input
                   type="text"
+                  placeholder="https://example.com/thumbnail.png (Optional)"
                   value={serviceThumbnail}
                   onChange={(e) => setServiceThumbnail(e.target.value)}
-                  placeholder="https://example.com/image.png (Optional)"
-                  className="w-full bg-slate-950/60 border border-zinc-800 rounded-lg p-2 text-xs text-zinc-200 focus:outline-none focus:border-red-500"
+                  className="w-full bg-slate-950 border border-zinc-800 rounded-xl py-2 px-3 text-zinc-200"
                 />
               </div>
 
-              <div className="space-y-2">
-                <label className="text-[10px] uppercase font-mono tracking-wider text-zinc-400">Availability Status</label>
-                <select
-                  value={serviceStatus}
-                  onChange={(e) => setServiceStatus(e.target.value as any)}
-                  className="w-full bg-slate-950/60 border border-zinc-800 rounded-lg p-2 text-xs text-zinc-200 focus:outline-none focus:border-red-500"
-                >
-                  <option value="Active">Active / Visible</option>
-                  <option value="Inactive">Inactive / Suspended</option>
-                </select>
+              {/* Duration Settings */}
+              <div className="p-3.5 bg-slate-950/60 border border-zinc-800/80 rounded-xl space-y-3">
+                <label className="block text-[10px] text-zinc-400 font-mono uppercase tracking-wider">Service Duration</label>
+                <div className="flex items-center space-x-6">
+                  <label className="flex items-center space-x-2 text-zinc-300 text-xs cursor-pointer select-none">
+                    <input
+                      type="radio"
+                      name="durationType"
+                      checked={serviceDurationType === "Lifetime"}
+                      onChange={() => setServiceDurationType("Lifetime")}
+                      className="text-amber-500 focus:ring-0 bg-slate-950 border-zinc-800"
+                    />
+                    <span>Lifetime Service</span>
+                  </label>
+                  <label className="flex items-center space-x-2 text-zinc-300 text-xs cursor-pointer select-none">
+                    <input
+                      type="radio"
+                      name="durationType"
+                      checked={serviceDurationType === "Fixed"}
+                      onChange={() => setServiceDurationType("Fixed")}
+                      className="text-amber-500 focus:ring-0 bg-slate-950 border-zinc-800"
+                    />
+                    <span>Fixed Duration</span>
+                  </label>
+                </div>
+
+                {serviceDurationType === "Fixed" && (
+                  <div className="grid grid-cols-2 gap-3 pt-1">
+                    <div>
+                      <label className="block text-[10px] text-zinc-400 font-mono uppercase tracking-wider mb-1">Duration Value</label>
+                      <input
+                        type="number"
+                        min="1"
+                        required={serviceDurationType === "Fixed"}
+                        placeholder="e.g. 30"
+                        value={serviceDurationValue}
+                        onChange={(e) => setServiceDurationValue(e.target.value === "" ? "" : Number(e.target.value))}
+                        className="w-full bg-slate-950 border border-zinc-800 rounded-xl py-2 px-3 text-zinc-200 font-mono"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] text-zinc-400 font-mono uppercase tracking-wider mb-1">Unit (Days / Months)</label>
+                      <select
+                        value={serviceDurationUnit}
+                        onChange={(e) => setServiceDurationUnit(e.target.value as any)}
+                        className="w-full bg-slate-950 border border-zinc-800 rounded-xl py-2 px-3 text-zinc-200"
+                      >
+                        <option value="Days">Days (e.g. 7 Days, 30 Days, 90 Days)</option>
+                        <option value="Months">Months (e.g. 6 Months, 12 Months)</option>
+                      </select>
+                    </div>
+                  </div>
+                )}
               </div>
 
-              <div className="md:col-span-2 flex justify-end gap-2 pt-2">
+              {/* Purchase Button Customization */}
+              <div>
+                <label className="block text-[10px] text-zinc-400 font-mono uppercase tracking-wider mb-1">Purchase Button Text</label>
+                <input
+                  type="text"
+                  placeholder="e.g. Buy Now, Purchase Service, Activate Service, Get Premium"
+                  value={serviceButtonText}
+                  onChange={(e) => setServiceButtonText(e.target.value)}
+                  className="w-full bg-slate-950 border border-zinc-800 rounded-xl py-2 px-3 text-zinc-200"
+                />
+              </div>
+
+              {/* Service Features */}
+              <div>
+                <label className="block text-[10px] text-zinc-400 font-mono uppercase tracking-wider mb-1">
+                  Service Features (One feature per line)
+                </label>
+                <textarea
+                  rows={4}
+                  placeholder="e.g. Priority Support&#10;Premium Dashboard Access&#10;Fast Withdrawal&#10;Exclusive Resources&#10;Certificate Access"
+                  value={serviceFeatures}
+                  onChange={(e) => setServiceFeatures(e.target.value)}
+                  className="w-full bg-slate-950 border border-zinc-800 rounded-xl p-2.5 text-zinc-200 font-sans"
+                />
+              </div>
+
+              {/* Service Description */}
+              <div>
+                <label className="block text-[10px] text-zinc-400 font-mono uppercase tracking-wider mb-1">
+                  Service Description (Complete description with multi-paragraphs)
+                </label>
+                <textarea
+                  rows={4}
+                  placeholder="Write a complete description that appears on the service details page before purchase..."
+                  value={serviceDescription}
+                  onChange={(e) => setServiceDescription(e.target.value)}
+                  className="w-full bg-slate-950 border border-zinc-800 rounded-xl p-2.5 text-zinc-200 font-sans"
+                />
+              </div>
+
+              {/* Benefits Summary */}
+              <div>
+                <label className="block text-[10px] text-zinc-400 font-mono uppercase tracking-wider mb-1">
+                  Benefits Summary (Checklist items, one per line)
+                </label>
+                <textarea
+                  rows={3}
+                  placeholder="e.g. 24/7 Support&#10;No Waiting Queue&#10;Premium Badge&#10;Exclusive Community Access"
+                  value={serviceBenefits}
+                  onChange={(e) => setServiceBenefits(e.target.value)}
+                  className="w-full bg-slate-950 border border-zinc-800 rounded-xl p-2.5 text-zinc-200 font-sans"
+                />
+              </div>
+
+              <div className="flex space-x-2 pt-2">
+                <button
+                  type="submit"
+                  disabled={actionLoading === "save_service"}
+                  className="flex-1 py-2.5 bg-amber-500 hover:bg-amber-600 disabled:bg-zinc-850 text-slate-950 font-bold uppercase tracking-wider text-[10px] rounded-xl cursor-pointer"
+                >
+                  {actionLoading === "save_service" ? "Saving..." : editingService ? "Update Service" : "Create Service"}
+                </button>
                 {editingService && (
                   <button
                     type="button"
-                    onClick={() => {
-                      setEditingService(null);
-                      setServiceName("");
-                      setServiceDescription("");
-                      setServicePrice("");
-                      setServiceStatus("Active");
-                      setServiceThumbnail("");
-                    }}
-                    className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-lg text-xs font-semibold"
+                    onClick={resetServiceForm}
+                    className="px-3 py-2.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 font-bold uppercase tracking-wider text-[10px] rounded-xl cursor-pointer"
                   >
                     Cancel
                   </button>
                 )}
-                <button
-                  type="submit"
-                  disabled={actionLoading === "save_service"}
-                  className="px-5 py-2 bg-red-600 hover:bg-red-500 text-white rounded-lg text-xs font-bold uppercase tracking-wider flex items-center space-x-1"
-                >
-                  <Check className="w-4 h-4" />
-                  <span>{actionLoading === "save_service" ? "Saving..." : (editingService ? "Save Service" : "Add Service")}</span>
-                </button>
               </div>
             </form>
           </div>
@@ -5630,9 +5858,9 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
             </div>
           </div>
 
-          {/* Active Services List */}
-          <div className="bg-slate-950/20 border border-zinc-850 rounded-2xl p-6 shadow-xl">
-            <h3 className="text-sm font-display font-semibold text-zinc-100 uppercase tracking-wider mb-4">
+          {/* Configured Services List */}
+          <div className="bg-slate-950/20 border border-zinc-850 rounded-2xl p-6 shadow-xl space-y-4">
+            <h3 className="text-sm font-display font-semibold text-zinc-100 uppercase tracking-wider">
               Configured Services Marketplace
             </h3>
 
@@ -5646,7 +5874,6 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
                   const sPurchases = adminServicePurchases.filter(p => p.serviceId === service.id);
                   const totalPurchases = sPurchases.length;
                   const totalRevenue = sPurchases.reduce((acc, cur) => acc + (cur.price || 0), 0);
-                  const activeBuyersCount = new Set(sPurchases.map(p => p.userId)).size;
 
                   return (
                     <div key={service.id} className="bg-zinc-950/40 border border-zinc-800/80 rounded-xl p-4 flex flex-col justify-between space-y-4">
@@ -5654,9 +5881,14 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
                         <div className="flex justify-between items-start">
                           <div>
                             <h4 className="text-xs font-bold text-zinc-100">{service.name}</h4>
-                            <span className="text-[10px] text-zinc-400 font-mono font-bold block mt-0.5">
-                              Price: ₹{service.price.toLocaleString("en-IN")}
-                            </span>
+                            <div className="flex items-center space-x-2 mt-0.5">
+                              <span className="text-[10px] text-amber-500 font-mono font-bold">
+                                Price: ₹{service.price.toLocaleString("en-IN")}
+                              </span>
+                              <span className="text-[9px] text-zinc-500 font-mono">
+                                ({service.durationType === "Fixed" ? `${service.durationValue} ${service.durationUnit}` : "Lifetime"})
+                              </span>
+                            </div>
                           </div>
                           <span className={`px-2 py-0.5 rounded text-[8px] font-mono uppercase font-bold ${
                             service.status === "Active" ? "bg-emerald-500/20 text-emerald-400" : "bg-zinc-800 text-zinc-400"
@@ -5664,6 +5896,7 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
                             {service.status}
                           </span>
                         </div>
+
                         {service.thumbnail && (
                           <img
                             src={service.thumbnail}
@@ -5673,29 +5906,52 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
                             onError={(e) => { (e.target as any).style.display = "none"; }}
                           />
                         )}
-                        <p className="text-[10px] text-zinc-400 line-clamp-3 mt-2">
+
+                        <p className="text-[10px] text-zinc-400 line-clamp-2 mt-1">
                           {service.description || "No description provided."}
                         </p>
+
+                        {/* Features preview */}
+                        {service.features && service.features.length > 0 && (
+                          <div className="text-[9px] text-zinc-400 space-y-0.5 pt-1">
+                            <span className="text-[8px] uppercase font-mono text-zinc-500 font-bold block">Features:</span>
+                            <div className="flex flex-wrap gap-1">
+                              {service.features.slice(0, 3).map((f, idx) => (
+                                <span key={idx} className="bg-zinc-900 px-1.5 py-0.5 rounded text-zinc-300">
+                                  • {f}
+                                </span>
+                              ))}
+                              {service.features.length > 3 && (
+                                <span className="text-zinc-500">+{service.features.length - 3} more</span>
+                              )}
+                            </div>
+                          </div>
+                        )}
                       </div>
 
                       <div className="pt-2 border-t border-zinc-900 flex justify-between items-center text-[9px] font-mono text-zinc-500">
                         <div>
-                          <span className="block">Purchases: <strong className="text-zinc-300">{totalPurchases}</strong></span>
-                          <span className="block">Revenue: <strong className="text-emerald-400">₹{totalRevenue}</strong></span>
-                          <span className="block">Active Buyers: <strong className="text-zinc-300">{activeBuyersCount}</strong></span>
+                          <span>Purchases: <strong className="text-zinc-300">{totalPurchases}</strong></span>
+                          <span className="ml-3">Revenue: <strong className="text-emerald-400">₹{totalRevenue}</strong></span>
                         </div>
                         <div className="flex space-x-1.5">
                           <button
                             type="button"
                             onClick={() => {
                               setEditingService(service);
-                              setServiceName(service.name);
+                              setServiceName(service.name || "");
                               setServiceDescription(service.description || "");
                               setServicePrice(service.price);
                               setServiceStatus(service.status || "Active");
                               setServiceThumbnail(service.thumbnail || "");
+                              setServiceDurationType(service.durationType || "Lifetime");
+                              setServiceDurationValue(service.durationValue ?? "");
+                              setServiceDurationUnit(service.durationUnit || "Days");
+                              setServiceFeatures(Array.isArray(service.features) ? service.features.join("\n") : "");
+                              setServiceBenefits(Array.isArray(service.benefits) ? service.benefits.join("\n") : "");
+                              setServiceButtonText(service.buttonText || "Buy Now");
                             }}
-                            className="p-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded transition-colors"
+                            className="p-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded transition-colors cursor-pointer"
                             title="Edit Service"
                           >
                             <Edit className="w-3.5 h-3.5" />
@@ -5703,7 +5959,7 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
                           <button
                             type="button"
                             onClick={() => handleDeleteService(service.id, service.name)}
-                            className="p-1.5 bg-red-950/30 hover:bg-red-900/40 text-red-400 rounded transition-colors"
+                            className="p-1.5 bg-red-950/30 hover:bg-red-900/40 text-red-400 rounded transition-colors cursor-pointer"
                             title="Delete Service"
                           >
                             <Trash2 className="w-3.5 h-3.5" />
@@ -5715,6 +5971,163 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
                 })}
               </div>
             )}
+          </div>
+
+          {/* PURCHASED SERVICES LEDGER & EXPIRY MANAGEMENT */}
+          <div className="bg-slate-950/20 border border-zinc-850 rounded-2xl p-6 shadow-xl space-y-4">
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+              <div>
+                <h3 className="text-sm font-display font-semibold text-zinc-100 uppercase tracking-wider flex items-center space-x-2">
+                  <Layers className="w-4 h-4 text-amber-500" />
+                  <span>Purchased Services & Subscriptions</span>
+                </h3>
+                <p className="text-[11px] text-zinc-400 mt-0.5">
+                  Manage active service purchases, extend durations, renew, or expire subscriptions manually.
+                </p>
+              </div>
+
+              {/* Filters */}
+              <div className="flex items-center gap-2 w-full sm:w-auto">
+                <input
+                  type="text"
+                  placeholder="Search user or service..."
+                  value={purchasedSearchTerm}
+                  onChange={(e) => setPurchasedSearchTerm(e.target.value)}
+                  className="bg-slate-950 border border-zinc-800 rounded-xl px-3 py-1.5 text-xs text-zinc-200 placeholder-zinc-500 focus:outline-none"
+                />
+                <select
+                  value={purchasedStatusFilter}
+                  onChange={(e) => setPurchasedStatusFilter(e.target.value)}
+                  className="bg-slate-950 border border-zinc-800 rounded-xl px-2.5 py-1.5 text-xs text-zinc-200 focus:outline-none"
+                >
+                  <option value="All">All Statuses</option>
+                  <option value="Active">Active Only</option>
+                  <option value="Expired">Expired Only</option>
+                </select>
+              </div>
+            </div>
+
+            {/* Table of Purchased Services */}
+            {(() => {
+              const filteredPurchases = adminServicePurchases.filter((p) => {
+                const matchesSearch =
+                  (p.serviceName || "").toLowerCase().includes(purchasedSearchTerm.toLowerCase()) ||
+                  (p.username || "").toLowerCase().includes(purchasedSearchTerm.toLowerCase());
+
+                const now = Date.now();
+                const isExpiredByTime = p.durationType === "Fixed" && p.expiryTimestamp ? now > p.expiryTimestamp : false;
+                const computedStatus = (p.status === "Expired" || isExpiredByTime) ? "Expired" : "Active";
+
+                if (purchasedStatusFilter === "Active" && computedStatus !== "Active") return false;
+                if (purchasedStatusFilter === "Expired" && computedStatus !== "Expired") return false;
+
+                return matchesSearch;
+              });
+
+              if (filteredPurchases.length === 0) {
+                return (
+                  <div className="text-center py-10 bg-zinc-950/40 border border-zinc-900 rounded-xl text-xs text-zinc-500">
+                    No purchased services match your search/filter criteria.
+                  </div>
+                );
+              }
+
+              return (
+                <div className="overflow-x-auto border border-zinc-900 rounded-xl">
+                  <table className="w-full text-left border-collapse">
+                    <thead>
+                      <tr className="bg-zinc-950 border-b border-zinc-900 text-[10px] uppercase font-mono tracking-wider text-zinc-400">
+                        <th className="py-3 px-3">Service Name</th>
+                        <th className="py-3 px-3">User</th>
+                        <th className="py-3 px-3">Purchase Date</th>
+                        <th className="py-3 px-3">Expiry Date</th>
+                        <th className="py-3 px-3">Remaining Days</th>
+                        <th className="py-3 px-3">Status</th>
+                        <th className="py-3 px-3 text-right">Founder Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-zinc-900 text-xs text-zinc-300">
+                      {filteredPurchases.map((p) => {
+                        const now = Date.now();
+                        let remainingDaysStr = "Lifetime";
+                        let isExpired = p.status === "Expired";
+
+                        if (p.durationType === "Fixed" && p.expiryTimestamp) {
+                          const diffDays = Math.ceil((p.expiryTimestamp - now) / (1000 * 60 * 60 * 24));
+                          if (diffDays <= 0 || p.status === "Expired") {
+                            remainingDaysStr = "0 Days (Expired)";
+                            isExpired = true;
+                          } else {
+                            remainingDaysStr = `${diffDays} Days`;
+                          }
+                        } else if (!p.durationType || p.durationType === "Lifetime") {
+                          remainingDaysStr = "Lifetime";
+                        }
+
+                        return (
+                          <tr key={p.id} className="hover:bg-zinc-900/30 transition-colors">
+                            <td className="py-3 px-3 font-semibold text-zinc-200">{p.serviceName}</td>
+                            <td className="py-3 px-3 text-zinc-400 font-mono">{p.username || "User"}</td>
+                            <td className="py-3 px-3 text-zinc-400 font-mono text-[11px]">{p.purchaseDate || "-"}</td>
+                            <td className="py-3 px-3 text-zinc-300 font-mono text-[11px]">{p.expiryDate || "Lifetime"}</td>
+                            <td className="py-3 px-3 font-mono font-bold">
+                              <span className={isExpired ? "text-red-400" : "text-amber-400"}>
+                                {remainingDaysStr}
+                              </span>
+                            </td>
+                            <td className="py-3 px-3">
+                              <span className={`inline-flex px-2 py-0.5 rounded text-[9px] font-mono uppercase font-bold ${
+                                isExpired ? "bg-red-500/15 text-red-400 border border-red-500/20" : "bg-emerald-500/15 text-emerald-400 border border-emerald-500/20"
+                              }`}>
+                                {isExpired ? "Expired" : "Active"}
+                              </span>
+                            </td>
+                            <td className="py-3 px-3 text-right">
+                              <div className="flex items-center justify-end gap-1.5">
+                                <button
+                                  onClick={() => handleRenewServicePurchase(p)}
+                                  disabled={actionLoading === `renew_purchase_${p.id}`}
+                                  className="px-2 py-1 bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-400 border border-emerald-500/30 rounded text-[10px] font-bold uppercase cursor-pointer transition-colors"
+                                  title="Renew service from today"
+                                >
+                                  Renew
+                                </button>
+                                <button
+                                  onClick={() => handleExtendServicePurchase(p)}
+                                  disabled={actionLoading === `extend_purchase_${p.id}`}
+                                  className="px-2 py-1 bg-amber-500/20 hover:bg-amber-500/30 text-amber-400 border border-amber-500/30 rounded text-[10px] font-bold uppercase cursor-pointer transition-colors"
+                                  title="Extend duration"
+                                >
+                                  Extend
+                                </button>
+                                <button
+                                  onClick={() => handleReduceServicePurchase(p)}
+                                  disabled={actionLoading === `reduce_purchase_${p.id}`}
+                                  className="px-2 py-1 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded text-[10px] font-bold uppercase cursor-pointer transition-colors"
+                                  title="Reduce duration"
+                                >
+                                  Reduce
+                                </button>
+                                {!isExpired && (
+                                  <button
+                                    onClick={() => handleExpireServicePurchase(p)}
+                                    disabled={actionLoading === `expire_purchase_${p.id}`}
+                                    className="px-2 py-1 bg-red-950/40 hover:bg-red-900/60 text-red-400 border border-red-800/40 rounded text-[10px] font-bold uppercase cursor-pointer transition-colors"
+                                    title="Expire immediately"
+                                  >
+                                    Expire
+                                  </button>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              );
+            })()}
           </div>
         </div>
       )}
