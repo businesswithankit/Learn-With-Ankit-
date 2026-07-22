@@ -3,7 +3,7 @@ import { collection, query, onSnapshot, doc, getDoc, updateDoc, setDoc, addDoc, 
 import { createUserWithEmailAndPassword } from "firebase/auth";
 import { db, handleFirestoreError, OperationType, getSecondaryAuth } from "../firebase";
 import { UserProfile, PaymentRequest, WithdrawalRequest, AuditLog, Announcement, Challenge, ChallengeProgress, CoFounderPermissions, ChallengeLead, MembershipPlan, PlatformFees, WithdrawalSettings, PlatformRevenue, RevenueTransaction, Service, ServicePurchase } from "../types";
-import { Users, CreditCard, ShieldCheck, Megaphone, Terminal, Search, UserPlus, Check, X, FileSpreadsheet, PlusCircle, AlertCircle, RefreshCw, Send, DollarSign, ShieldAlert, Settings, Bell, Trophy, Award, Landmark, Hourglass, ClipboardCheck, Sparkles, AlertTriangle, TrendingUp, Coins, Calendar, Clock, Lock, Unlock, Share2, Save, Trash2, Edit, Download, Wallet, TrendingDown, ArrowUpRight, Layers } from "lucide-react";
+import { Users, CreditCard, ShieldCheck, Megaphone, Terminal, Search, UserPlus, Check, CheckCircle, X, FileSpreadsheet, PlusCircle, AlertCircle, RefreshCw, Send, DollarSign, ShieldAlert, Settings, Bell, Trophy, Award, Landmark, Hourglass, ClipboardCheck, Sparkles, AlertTriangle, TrendingUp, Coins, Calendar, Clock, Lock, Unlock, Share2, Save, Trash2, Edit, Download, Wallet, TrendingDown, ArrowUpRight, Layers } from "lucide-react";
 import AnimatedCounter from "./AnimatedCounter";
 import { jsPDF } from "jspdf";
 import MultiSelect from "./MultiSelect";
