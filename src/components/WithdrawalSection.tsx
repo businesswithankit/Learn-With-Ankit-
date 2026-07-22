@@ -1,14 +1,139 @@
 import React, { useState, useEffect } from "react";
-import { collection, addDoc, serverTimestamp, doc, updateDoc, writeBatch, onSnapshot } from "firebase/firestore";
+import { collection, addDoc, serverTimestamp, doc, updateDoc, writeBatch, onSnapshot, query, where } from "firebase/firestore";
 import { db, handleFirestoreError, OperationType } from "../firebase";
-import { UserProfile, PlatformFees } from "../types";
+import { UserProfile, PlatformFees, WithdrawalSettings } from "../types";
 import WalletCard from "./WalletCard";
-import { Landmark, CheckCircle, AlertTriangle, ArrowUpRight, HelpCircle, Key, Zap } from "lucide-react";
+import { Landmark, CheckCircle, AlertTriangle, ArrowUpRight, HelpCircle, Key, Zap, Clock, Calendar, Lock, ShieldAlert, Info } from "lucide-react";
 import { hashPin } from "../utils/pin";
 
 interface WithdrawalSectionProps {
   user: UserProfile;
   onUpdateUser: (updatedFields: Partial<UserProfile>) => void;
+}
+
+const ALL_DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+
+export function evaluateSchedule(config: WithdrawalSettings | null) {
+  const now = new Date();
+  const currentDayName = ALL_DAYS[now.getDay()]; // e.g., "Wednesday"
+  
+  const hours = String(now.getHours()).padStart(2, "0");
+  const minutes = String(now.getMinutes()).padStart(2, "0");
+  const currentTimeStr = `${hours}:${minutes}`;
+
+  if (!config) {
+    return {
+      isOpen: true,
+      reason: null,
+      currentDay: currentDayName,
+      currentTime: currentTimeStr,
+      minAmount: 100,
+      maxAmount: 10000,
+      dailyLimit: 20000,
+      weeklyLimit: 100000,
+      monthlyLimit: 400000,
+      allowedDays: ALL_DAYS,
+      startTime: "00:00",
+      endTime: "23:59",
+      enabled: true,
+    };
+  }
+
+  const enabled = config.enabled ?? true;
+  const minAmount = config.minAmount ?? 100;
+  const maxAmount = config.maxAmount ?? 10000;
+  const dailyLimit = config.dailyLimit ?? 20000;
+  const weeklyLimit = config.weeklyLimit ?? 100000;
+  const monthlyLimit = config.monthlyLimit ?? 400000;
+  const startTime = config.startTime || "00:00";
+  const endTime = config.endTime || "23:59";
+  const rawAllowedDays = config.allowedDays && config.allowedDays.length > 0 ? config.allowedDays : ALL_DAYS;
+
+  const normalizedAllowedDays = rawAllowedDays.map(d => d.trim().toLowerCase());
+
+  if (!enabled) {
+    return {
+      isOpen: false,
+      reason: "Withdrawal requests are currently disabled globally by administration.",
+      currentDay: currentDayName,
+      currentTime: currentTimeStr,
+      minAmount,
+      maxAmount,
+      dailyLimit,
+      weeklyLimit,
+      monthlyLimit,
+      allowedDays: rawAllowedDays,
+      startTime,
+      endTime,
+      enabled: false,
+    };
+  }
+
+  const isDayAllowed = normalizedAllowedDays.some(d => 
+    d === currentDayName.toLowerCase() || 
+    currentDayName.toLowerCase().startsWith(d) ||
+    d.startsWith(currentDayName.toLowerCase().substring(0, 3))
+  );
+
+  if (!isDayAllowed) {
+    return {
+      isOpen: false,
+      reason: `Withdrawals are not accepted on ${currentDayName}s. Scheduled payout days: ${rawAllowedDays.join(", ")}.`,
+      currentDay: currentDayName,
+      currentTime: currentTimeStr,
+      minAmount,
+      maxAmount,
+      dailyLimit,
+      weeklyLimit,
+      monthlyLimit,
+      allowedDays: rawAllowedDays,
+      startTime,
+      endTime,
+      enabled: true,
+    };
+  }
+
+  const [currH, currM] = currentTimeStr.split(":").map(Number);
+  const [startH, startM] = startTime.split(":").map(Number);
+  const [endH, endM] = endTime.split(":").map(Number);
+
+  const currMinutes = (currH || 0) * 60 + (currM || 0);
+  const startMinutes = (startH || 0) * 60 + (startM || 0);
+  const endMinutes = (endH || 23) * 60 + (endM || 59);
+
+  if (currMinutes < startMinutes || currMinutes > endMinutes) {
+    return {
+      isOpen: false,
+      reason: `Withdrawal window is closed right now (${currentTimeStr}). Daily schedule window: ${startTime} to ${endTime}.`,
+      currentDay: currentDayName,
+      currentTime: currentTimeStr,
+      minAmount,
+      maxAmount,
+      dailyLimit,
+      weeklyLimit,
+      monthlyLimit,
+      allowedDays: rawAllowedDays,
+      startTime,
+      endTime,
+      enabled: true,
+    };
+  }
+
+  return {
+    isOpen: true,
+    reason: null,
+    currentDay: currentDayName,
+    currentTime: currentTimeStr,
+    minAmount,
+    maxAmount,
+    dailyLimit,
+    weeklyLimit,
+    monthlyLimit,
+    allowedDays: rawAllowedDays,
+    startTime,
+    endTime,
+    enabled: true,
+  };
 }
 
 export default function WithdrawalSection({ user, onUpdateUser }: WithdrawalSectionProps) {
@@ -18,18 +143,87 @@ export default function WithdrawalSection({ user, onUpdateUser }: WithdrawalSect
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState<string | null>(null);
   
-  // Real-time fees configuration state
+  // Real-time fees & withdrawal schedule states
   const [fees, setFees] = useState<PlatformFees | null>(null);
+  const [withdrawalSettings, setWithdrawalSettings] = useState<WithdrawalSettings | null>(null);
+  const [userWithdrawalsHistory, setUserWithdrawalsHistory] = useState<any[]>([]);
   const [withdrawalType, setWithdrawalType] = useState<"Standard" | "Fast">("Standard");
 
   useEffect(() => {
-    const unsub = onSnapshot(doc(db, "settings", "fees"), (snapshot) => {
+    const unsubFees = onSnapshot(doc(db, "settings", "fees"), (snapshot) => {
       if (snapshot.exists()) {
         setFees(snapshot.data() as PlatformFees);
       }
     });
-    return () => unsub();
+
+    const unsubSchedule = onSnapshot(doc(db, "settings", "withdrawals"), (snapshot) => {
+      if (snapshot.exists()) {
+        setWithdrawalSettings(snapshot.data() as WithdrawalSettings);
+      }
+    });
+
+    return () => {
+      unsubFees();
+      unsubSchedule();
+    };
   }, []);
+
+  // Listen to user's historical withdrawal requests for rolling limits
+  useEffect(() => {
+    if (!user.userId) return;
+    const q = query(
+      collection(db, "withdrawals"),
+      where("userId", "==", user.userId)
+    );
+    const unsub = onSnapshot(q, (snapshot) => {
+      const list: any[] = [];
+      snapshot.forEach((doc) => {
+        list.push({ id: doc.id, ...doc.data() });
+      });
+      setUserWithdrawalsHistory(list);
+    }, (err) => handleFirestoreError(err, OperationType.LIST, "withdrawals"));
+
+    return () => unsub();
+  }, [user.userId]);
+
+  const scheduleInfo = evaluateSchedule(withdrawalSettings);
+
+  // Calculate requested withdrawal totals
+  const getTotals = () => {
+    const now = new Date();
+    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+    const startOfWeek = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).getTime();
+    const startOfMonth = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).getTime();
+
+    let today = 0;
+    let week = 0;
+    let month = 0;
+
+    userWithdrawalsHistory.forEach((w) => {
+      if (w.status === "Rejected") return; // Rejected requests don't consume user limits
+      const amount = Number(w.withdrawalAmount) || 0;
+      let txTime = 0;
+      if (w.timestamp?.seconds) {
+        txTime = w.timestamp.seconds * 1000;
+      } else if (w.date) {
+        txTime = new Date(w.date).getTime();
+      }
+
+      if (txTime >= startOfToday) {
+        today += amount;
+      }
+      if (txTime >= startOfWeek) {
+        week += amount;
+      }
+      if (txTime >= startOfMonth) {
+        month += amount;
+      }
+    });
+
+    return { today, week, month };
+  };
+
+  const totals = getTotals();
 
   // Check if KYC is completed
   const isKycCompleted = !!(user.kycName && user.kycUpiId && user.kycUpiNumber);
@@ -76,17 +270,48 @@ export default function WithdrawalSection({ user, onUpdateUser }: WithdrawalSect
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    if (!scheduleInfo.isOpen) {
+      setError(scheduleInfo.reason || "Withdrawal requests are currently closed according to the platform schedule.");
+      return;
+    }
+
     if (!isKycCompleted) {
       setError("KYC Verification is required. Please fill in your UPI details on the KYC page first.");
       return;
     }
 
-    if (!withdrawalAmount || withdrawalAmount < 100 || withdrawalAmount > 10000) {
-      setError("Withdrawal limit must be between ₹100 and ₹10,000.");
+    const reqAmt = Number(withdrawalAmount);
+
+    if (!reqAmt || reqAmt < scheduleInfo.minAmount) {
+      setError(`Minimum withdrawal amount per request is ₹${scheduleInfo.minAmount.toLocaleString("en-IN")}.`);
       return;
     }
 
-    if (withdrawalAmount > user.walletBalance) {
+    if (reqAmt > scheduleInfo.maxAmount) {
+      setError(`Maximum withdrawal amount per request is ₹${scheduleInfo.maxAmount.toLocaleString("en-IN")}.`);
+      return;
+    }
+
+    if (totals.today + reqAmt > scheduleInfo.dailyLimit) {
+      const remainingToday = Math.max(0, scheduleInfo.dailyLimit - totals.today);
+      setError(`Daily withdrawal limit of ₹${scheduleInfo.dailyLimit.toLocaleString("en-IN")} exceeded. You have already requested ₹${totals.today.toLocaleString("en-IN")} today (Remaining limit: ₹${remainingToday.toLocaleString("en-IN")}).`);
+      return;
+    }
+
+    if (totals.week + reqAmt > scheduleInfo.weeklyLimit) {
+      const remainingWeek = Math.max(0, scheduleInfo.weeklyLimit - totals.week);
+      setError(`Weekly withdrawal limit of ₹${scheduleInfo.weeklyLimit.toLocaleString("en-IN")} exceeded. You have requested ₹${totals.week.toLocaleString("en-IN")} this week (Remaining limit: ₹${remainingWeek.toLocaleString("en-IN")}).`);
+      return;
+    }
+
+    if (totals.month + reqAmt > scheduleInfo.monthlyLimit) {
+      const remainingMonth = Math.max(0, scheduleInfo.monthlyLimit - totals.month);
+      setError(`Monthly withdrawal limit of ₹${scheduleInfo.monthlyLimit.toLocaleString("en-IN")} exceeded. You have requested ₹${totals.month.toLocaleString("en-IN")} this month (Remaining limit: ₹${remainingMonth.toLocaleString("en-IN")}).`);
+      return;
+    }
+
+    if (reqAmt > user.walletBalance) {
       setError(`Insufficient wallet balance. You can withdraw up to ₹${user.walletBalance.toLocaleString("en-IN")}.`);
       return;
     }
@@ -124,7 +349,7 @@ export default function WithdrawalSection({ user, onUpdateUser }: WithdrawalSect
         date: new Date().toLocaleDateString("en-IN"),
         email: user.email,
         phone: user.phone || "",
-        withdrawalAmount: Number(withdrawalAmount),
+        withdrawalAmount: reqAmt,
         status: "Pending",
         timestamp: serverTimestamp(),
         holderName: user.kycName || "",
@@ -139,7 +364,7 @@ export default function WithdrawalSection({ user, onUpdateUser }: WithdrawalSect
       batch.set(notificationRef, {
         userId: "all",
         title: `New ${withdrawalType} Withdrawal Request`,
-        body: `${user.username} requested a ${withdrawalType} withdrawal of ₹${Number(withdrawalAmount).toLocaleString("en-IN")} (Estimated Fee: ₹${computedFee})`,
+        body: `${user.username} requested a ${withdrawalType} withdrawal of ₹${reqAmt.toLocaleString("en-IN")} (Estimated Fee: ₹${computedFee})`,
         timestamp: serverTimestamp(),
         isRead: false,
         type: "withdrawal",
@@ -164,6 +389,68 @@ export default function WithdrawalSection({ user, onUpdateUser }: WithdrawalSect
       {/* Balance Card */}
       <div className="flex justify-center">
         <WalletCard balance={user.walletBalance} username={user.username} />
+      </div>
+
+      {/* SCHEDULE STATUS CARD */}
+      <div className="w-full max-w-2xl mx-auto rounded-2xl bg-zinc-950/60 border border-zinc-800 p-5 shadow-xl space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-zinc-850">
+          <div className="flex items-center space-x-2.5">
+            <div className={`p-2 rounded-xl ${scheduleInfo.isOpen ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20" : "bg-red-500/10 text-red-400 border border-red-500/20"}`}>
+              {scheduleInfo.isOpen ? <Clock className="w-5 h-5" /> : <Lock className="w-5 h-5" />}
+            </div>
+            <div>
+              <div className="flex items-center space-x-2">
+                <h4 className="text-sm font-display font-bold text-zinc-100 uppercase tracking-wider">Withdrawal Schedule Status</h4>
+                <span className={`px-2 py-0.5 text-[9px] font-mono font-bold uppercase tracking-wider rounded-full border ${scheduleInfo.isOpen ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/30" : "bg-red-500/15 text-red-400 border-red-500/30"}`}>
+                  {scheduleInfo.isOpen ? "🟢 Window Open" : "🔴 Window Closed"}
+                </span>
+              </div>
+              <p className="text-[11px] text-zinc-400 mt-0.5">
+                Current local time: <strong className="text-amber-400 font-mono">{scheduleInfo.currentDay}, {scheduleInfo.currentTime}</strong>
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {!scheduleInfo.isOpen && (
+          <div className="p-3.5 rounded-xl bg-red-500/10 border border-red-500/20 text-red-300 text-xs flex items-start space-x-2.5">
+            <ShieldAlert className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
+            <div className="space-y-1">
+              <p className="font-semibold text-red-400">Withdrawal Requests Currently Blocked</p>
+              <p className="text-[11px] text-red-300/90 leading-relaxed">{scheduleInfo.reason}</p>
+            </div>
+          </div>
+        )}
+
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs font-sans pt-1">
+          <div className="bg-slate-950/60 p-3 rounded-xl border border-zinc-850 space-y-1">
+            <span className="text-[9px] text-zinc-500 font-mono uppercase tracking-wider block">Allowed Days</span>
+            <span className="font-medium text-zinc-200 text-[11px] truncate block" title={scheduleInfo.allowedDays.join(", ")}>
+              {scheduleInfo.allowedDays.length === 7 ? "Everyday (All 7 Days)" : scheduleInfo.allowedDays.join(", ")}
+            </span>
+          </div>
+
+          <div className="bg-slate-950/60 p-3 rounded-xl border border-zinc-850 space-y-1">
+            <span className="text-[9px] text-zinc-500 font-mono uppercase tracking-wider block">Daily Hours</span>
+            <span className="font-mono text-zinc-200 text-[11px] font-medium block">
+              {scheduleInfo.startTime} - {scheduleInfo.endTime}
+            </span>
+          </div>
+
+          <div className="bg-slate-950/60 p-3 rounded-xl border border-zinc-850 space-y-1">
+            <span className="text-[9px] text-zinc-500 font-mono uppercase tracking-wider block">Per Request Min/Max</span>
+            <span className="font-mono text-amber-400 text-[11px] font-medium block">
+              ₹{scheduleInfo.minAmount.toLocaleString("en-IN")} - ₹{scheduleInfo.maxAmount.toLocaleString("en-IN")}
+            </span>
+          </div>
+
+          <div className="bg-slate-950/60 p-3 rounded-xl border border-zinc-850 space-y-1">
+            <span className="text-[9px] text-zinc-500 font-mono uppercase tracking-wider block">Requested Today</span>
+            <span className="font-mono text-emerald-400 text-[11px] font-medium block">
+              ₹{totals.today.toLocaleString("en-IN")} / ₹{scheduleInfo.dailyLimit.toLocaleString("en-IN")}
+            </span>
+          </div>
+        </div>
       </div>
 
       <div className="w-full max-w-2xl mx-auto rounded-2xl glass-panel p-6 border border-zinc-800 relative overflow-hidden shadow-xl">
@@ -255,19 +542,19 @@ export default function WithdrawalSection({ user, onUpdateUser }: WithdrawalSect
               <input
                 id="withdrawalAmount"
                 type="number"
-                min="100"
-                max="10000"
+                min={scheduleInfo.minAmount}
+                max={scheduleInfo.maxAmount}
                 required
-                disabled={!isKycCompleted}
-                placeholder="₹100 - ₹10,000"
+                disabled={!isKycCompleted || !scheduleInfo.isOpen}
+                placeholder={`₹${scheduleInfo.minAmount.toLocaleString("en-IN")} - ₹${scheduleInfo.maxAmount.toLocaleString("en-IN")}`}
                 value={withdrawalAmount}
                 onChange={(e) => setWithdrawalAmount(e.target.value !== "" ? Number(e.target.value) : "")}
-                className="w-full bg-slate-950/50 border border-zinc-800 rounded-xl py-2.5 pl-10 pr-4 text-sm text-zinc-200 placeholder-zinc-600 focus:outline-hidden focus:border-amber-500/60 transition-colors font-sans font-medium"
+                className="w-full bg-slate-950/50 border border-zinc-800 rounded-xl py-2.5 pl-10 pr-4 text-sm text-zinc-200 placeholder-zinc-600 focus:outline-hidden focus:border-amber-500/60 transition-colors font-sans font-medium disabled:opacity-50"
               />
             </div>
             <div className="flex justify-between items-center mt-1.5 px-1 text-[10px] text-zinc-500 font-mono">
-              <span>Min: ₹100 | Max: ₹10,000</span>
-              <span>Available for withdrawal: ₹{user.walletBalance.toLocaleString("en-IN")}</span>
+              <span>Min: ₹{scheduleInfo.minAmount.toLocaleString("en-IN")} | Max: ₹{scheduleInfo.maxAmount.toLocaleString("en-IN")}</span>
+              <span>Available balance: ₹{user.walletBalance.toLocaleString("en-IN")}</span>
             </div>
           </div>
 
@@ -354,8 +641,9 @@ export default function WithdrawalSection({ user, onUpdateUser }: WithdrawalSect
                 pattern="\d{4}"
                 placeholder="Enter 4-digit Wallet PIN"
                 value={pin}
+                disabled={!isKycCompleted || !scheduleInfo.isOpen}
                 onChange={(e) => setPin(e.target.value.replace(/\D/g, ''))}
-                className="w-full bg-slate-950/50 border border-zinc-800 rounded-xl py-2.5 px-4 text-sm text-zinc-200 tracking-widest text-center font-mono placeholder-zinc-650 focus:outline-hidden focus:border-amber-500/60 transition-colors"
+                className="w-full bg-slate-950/50 border border-zinc-800 rounded-xl py-2.5 px-4 text-sm text-zinc-200 tracking-widest text-center font-mono placeholder-zinc-650 focus:outline-hidden focus:border-amber-500/60 transition-colors disabled:opacity-50"
               />
             </div>
             {!user.walletPinHash && (
@@ -368,11 +656,17 @@ export default function WithdrawalSection({ user, onUpdateUser }: WithdrawalSect
           <div className="pt-3">
             <button
               type="submit"
-              disabled={loading || !isKycCompleted}
+              disabled={loading || !isKycCompleted || !scheduleInfo.isOpen}
               className="w-full bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 disabled:from-zinc-800 disabled:to-zinc-900 disabled:text-zinc-600 font-display font-semibold text-slate-950 text-sm py-3 px-4 rounded-xl shadow-lg transition-all duration-300 transform active:scale-98 flex items-center justify-center space-x-2 cursor-pointer"
             >
               <ArrowUpRight className="w-4 h-4" />
-              <span>{loading ? "Processing..." : "Initiate Withdrawal"}</span>
+              <span>
+                {loading 
+                  ? "Processing..." 
+                  : !scheduleInfo.isOpen 
+                  ? "Withdrawals Closed" 
+                  : "Initiate Withdrawal"}
+              </span>
             </button>
           </div>
         </form>
@@ -380,3 +674,4 @@ export default function WithdrawalSection({ user, onUpdateUser }: WithdrawalSect
     </div>
   );
 }
+

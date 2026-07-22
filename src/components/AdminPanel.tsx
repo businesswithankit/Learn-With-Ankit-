@@ -8,6 +8,7 @@ import AnimatedCounter from "./AnimatedCounter";
 import { jsPDF } from "jspdf";
 import MultiSelect from "./MultiSelect";
 import { hashPin } from "../utils/pin";
+import { evaluateSchedule } from "./WithdrawalSection";
 
 interface AdminPanelProps {
   adminUser: UserProfile;
@@ -4716,149 +4717,249 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
       )}
 
       {/* 🗓️ WITHDRAWAL SCHEDULE TAB */}
-      {activeTab === "withdrawal_settings" && (
-        <div className="space-y-6 animate-fade-in">
-          <form onSubmit={handleSaveWithdrawConfig} className="bg-slate-950/20 border border-zinc-850 rounded-2xl p-6 shadow-xl space-y-6">
-            <div className="flex justify-between items-center pb-4 border-b border-zinc-900">
-              <div>
-                <h3 className="text-sm font-display font-semibold text-zinc-100 uppercase tracking-wider flex items-center space-x-2">
-                  <Calendar className="w-5 h-5 text-amber-500" />
-                  <span>Withdrawal Scheduling & Limitations Rules</span>
-                </h3>
-                <p className="text-xs text-zinc-400 mt-1">
-                  Enforce strict transaction size caps, rolling timeline maximums, weekly hours, and schedule windows.
-                </p>
-              </div>
-              <button
-                type="submit"
-                disabled={actionLoading === "save_withdraw_config"}
-                className="px-5 py-2.5 bg-amber-500 hover:bg-amber-600 disabled:bg-zinc-800 text-slate-950 font-bold uppercase tracking-wider text-[10px] rounded-xl cursor-pointer transition-colors"
-              >
-                {actionLoading === "save_withdraw_config" ? "Saving..." : "Save Settings"}
-              </button>
-            </div>
+      {activeTab === "withdrawal_settings" && (() => {
+        const allowedDaysArray = allowedWithdrawDays.split(",").map(d => d.trim()).filter(Boolean);
+        const allSevenDays = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+        
+        const livePreview = evaluateSchedule({
+          minAmount: Number(minWithdrawAmount) || 100,
+          maxAmount: Number(maxWithdrawAmount) || 10000,
+          dailyLimit: Number(dailyWithdrawLimit) || 20000,
+          weeklyLimit: Number(weeklyWithdrawLimit) || 100000,
+          monthlyLimit: Number(monthlyWithdrawLimit) || 400000,
+          allowedDays: allowedDaysArray,
+          startTime: withdrawStartTime,
+          endTime: withdrawEndTime,
+          enabled: withdrawEnabled,
+          mode: "Daily",
+        });
 
-            {withdrawConfigSuccess && (
-              <div className="p-3 bg-emerald-500/10 border border-emerald-500/25 text-emerald-400 text-xs rounded-xl">
-                Withdrawal rules updated and committed to Firestore successfully!
-              </div>
-            )}
+        const toggleDay = (dayName: string) => {
+          let updated: string[];
+          if (allowedDaysArray.some(d => d.toLowerCase() === dayName.toLowerCase())) {
+            updated = allowedDaysArray.filter(d => d.toLowerCase() !== dayName.toLowerCase());
+          } else {
+            updated = [...allowedDaysArray, dayName];
+          }
+          setAllowedWithdrawDays(updated.join(","));
+        };
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-xs font-sans">
-              {/* Card 1: Limits */}
-              <div className="bg-zinc-950/40 p-5 rounded-2xl border border-zinc-800/80 space-y-4">
-                <span className="text-[10px] font-mono text-zinc-500 uppercase tracking-wider block">1. Transaction Size Boundaries</span>
-                
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-[10px] text-zinc-400 mb-1">Minimum Single Payout (₹)</label>
-                    <input
-                      type="number"
-                      value={minWithdrawAmount}
-                      onChange={(e) => setMinWithdrawAmount(Number(e.target.value))}
-                      className="w-full bg-slate-950 border border-zinc-800 rounded-xl py-2 px-3 text-zinc-200 font-mono"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-[10px] text-zinc-400 mb-1">Maximum Single Payout (₹)</label>
-                    <input
-                      type="number"
-                      value={maxWithdrawAmount}
-                      onChange={(e) => setMaxWithdrawAmount(Number(e.target.value))}
-                      className="w-full bg-slate-950 border border-zinc-800 rounded-xl py-2 px-3 text-zinc-200 font-mono"
-                    />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-3 gap-3 pt-2">
-                  <div>
-                    <label className="block text-[9px] text-zinc-400 mb-1">Daily Cap (₹)</label>
-                    <input
-                      type="number"
-                      value={dailyWithdrawLimit}
-                      onChange={(e) => setDailyWithdrawLimit(Number(e.target.value))}
-                      className="w-full bg-slate-950 border border-zinc-800 rounded-xl py-2 px-3 text-zinc-200 font-mono"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-[9px] text-zinc-400 mb-1">Weekly Cap (₹)</label>
-                    <input
-                      type="number"
-                      value={weeklyWithdrawLimit}
-                      onChange={(e) => setWeeklyWithdrawLimit(Number(e.target.value))}
-                      className="w-full bg-slate-950 border border-zinc-800 rounded-xl py-2 px-3 text-zinc-200 font-mono"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-[9px] text-zinc-400 mb-1">Monthly Cap (₹)</label>
-                    <input
-                      type="number"
-                      value={monthlyWithdrawLimit}
-                      onChange={(e) => setMonthlyWithdrawLimit(Number(e.target.value))}
-                      className="w-full bg-slate-950 border border-zinc-800 rounded-xl py-2 px-3 text-zinc-200 font-mono"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              {/* Card 2: Days & Windows */}
-              <div className="bg-zinc-950/40 p-5 rounded-2xl border border-zinc-800/80 space-y-4">
-                <span className="text-[10px] font-mono text-zinc-500 uppercase tracking-wider block">2. Temporal Schedule Windows</span>
-
+        return (
+          <div className="space-y-6 animate-fade-in font-sans">
+            <form onSubmit={handleSaveWithdrawConfig} className="bg-slate-950/20 border border-zinc-850 rounded-2xl p-6 shadow-xl space-y-6">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-zinc-900">
                 <div>
-                  <label className="block text-[10px] text-zinc-400 mb-1">Allowed Days (Comma separated)</label>
-                  <input
-                    type="text"
-                    value={allowedWithdrawDays}
-                    onChange={(e) => setAllowedWithdrawDays(e.target.value)}
-                    placeholder="Monday,Wednesday,Friday"
-                    className="w-full bg-slate-950 border border-zinc-800 rounded-xl py-2 px-3 text-zinc-200 font-mono"
-                  />
-                  <p className="text-[9px] text-zinc-500 mt-1">
-                    List of exact days payouts can be initiated: e.g. Friday,Saturday
+                  <h3 className="text-sm font-display font-semibold text-zinc-100 uppercase tracking-wider flex items-center space-x-2">
+                    <Calendar className="w-5 h-5 text-amber-500" />
+                    <span>Withdrawal Schedule & Limits Control Center</span>
+                  </h3>
+                  <p className="text-xs text-zinc-400 mt-1">
+                    Configure active operating days, daily time windows, transaction bounds, and rolling caps.
                   </p>
                 </div>
+                <button
+                  type="submit"
+                  disabled={actionLoading === "save_withdraw_config"}
+                  className="px-5 py-2.5 bg-amber-500 hover:bg-amber-600 disabled:bg-zinc-800 text-slate-950 font-bold uppercase tracking-wider text-[10px] rounded-xl cursor-pointer transition-colors shrink-0"
+                >
+                  {actionLoading === "save_withdraw_config" ? "Saving Schedule..." : "Save Schedule Settings"}
+                </button>
+              </div>
 
-                <div className="grid grid-cols-2 gap-3 pt-1">
-                  <div>
-                    <label className="block text-[10px] text-zinc-400 mb-1">Daily Start Hour (HH:MM)</label>
-                    <input
-                      type="text"
-                      value={withdrawStartTime}
-                      onChange={(e) => setWithdrawStartTime(e.target.value)}
-                      placeholder="09:00"
-                      className="w-full bg-slate-950 border border-zinc-800 rounded-xl py-2 px-3 text-zinc-200 font-mono"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-[10px] text-zinc-400 mb-1">Daily End Hour (HH:MM)</label>
-                    <input
-                      type="text"
-                      value={withdrawEndTime}
-                      onChange={(e) => setWithdrawEndTime(e.target.value)}
-                      placeholder="18:00"
-                      className="w-full bg-slate-950 border border-zinc-800 rounded-xl py-2 px-3 text-zinc-200 font-mono"
-                    />
-                  </div>
+              {withdrawConfigSuccess && (
+                <div className="p-3 bg-emerald-500/10 border border-emerald-500/25 text-emerald-400 text-xs rounded-xl flex items-center space-x-2">
+                  <CheckCircle className="w-4 h-4 shrink-0" />
+                  <span>Withdrawal rules updated and committed to Firestore successfully!</span>
                 </div>
+              )}
 
-                <div className="flex items-center space-x-2 pt-2">
-                  <input
-                    type="checkbox"
-                    id="withdrawEnabledGlobal"
-                    checked={withdrawEnabled}
-                    onChange={(e) => setWithdrawEnabled(e.target.checked)}
-                    className="rounded border-zinc-800 text-amber-500 focus:ring-0 bg-slate-950"
-                  />
-                  <label htmlFor="withdrawEnabledGlobal" className="text-[11px] text-zinc-300 select-none">
-                    Globally enable withdrawals at this time
-                  </label>
+              {/* LIVE SCHEDULE STATUS PREVIEW CARD FOR ADMIN */}
+              <div className={`p-4 rounded-xl border flex flex-col md:flex-row md:items-center justify-between gap-4 ${livePreview.isOpen ? "bg-emerald-500/10 border-emerald-500/25 text-emerald-300" : "bg-amber-500/10 border-amber-500/25 text-amber-300"}`}>
+                <div className="flex items-start space-x-3">
+                  <div className={`p-2 rounded-lg mt-0.5 ${livePreview.isOpen ? "bg-emerald-500/20 text-emerald-400" : "bg-amber-500/20 text-amber-400"}`}>
+                    <Clock className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <div className="flex items-center space-x-2">
+                      <span className="text-xs font-bold uppercase tracking-wider font-mono">Real-Time Status Preview:</span>
+                      <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold font-mono uppercase tracking-wider ${livePreview.isOpen ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/40" : "bg-amber-500/20 text-amber-300 border border-amber-500/40"}`}>
+                        {livePreview.isOpen ? "🟢 OPEN FOR USER REQUESTS" : "🔴 CLOSED FOR USER REQUESTS"}
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-zinc-300 mt-1">
+                      Current System Time: <strong className="font-mono text-zinc-100">{livePreview.currentDay}, {livePreview.currentTime}</strong>
+                    </p>
+                    {!livePreview.isOpen && (
+                      <p className="text-[11px] text-amber-400 font-medium mt-1">
+                        Reason for closure: {livePreview.reason}
+                      </p>
+                    )}
+                  </div>
                 </div>
               </div>
-            </div>
-          </form>
-        </div>
-      )}
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-xs font-sans">
+                {/* Card 1: Limits */}
+                <div className="bg-zinc-950/40 p-5 rounded-2xl border border-zinc-800/80 space-y-4">
+                  <span className="text-[10px] font-mono text-zinc-500 uppercase tracking-wider block">1. Transaction Limits & Rolling Caps</span>
+                  
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-[10px] text-zinc-400 mb-1 font-mono uppercase">Minimum Single Request (₹)</label>
+                      <input
+                        type="number"
+                        min="1"
+                        value={minWithdrawAmount}
+                        onChange={(e) => setMinWithdrawAmount(Number(e.target.value))}
+                        className="w-full bg-slate-950 border border-zinc-800 rounded-xl py-2 px-3 text-zinc-200 font-mono text-xs"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] text-zinc-400 mb-1 font-mono uppercase">Maximum Single Request (₹)</label>
+                      <input
+                        type="number"
+                        min="1"
+                        value={maxWithdrawAmount}
+                        onChange={(e) => setMaxWithdrawAmount(Number(e.target.value))}
+                        className="w-full bg-slate-950 border border-zinc-800 rounded-xl py-2 px-3 text-zinc-200 font-mono text-xs"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-3 gap-3 pt-2">
+                    <div>
+                      <label className="block text-[9px] text-zinc-400 mb-1 font-mono uppercase">Daily Cap (₹)</label>
+                      <input
+                        type="number"
+                        min="1"
+                        value={dailyWithdrawLimit}
+                        onChange={(e) => setDailyWithdrawLimit(Number(e.target.value))}
+                        className="w-full bg-slate-950 border border-zinc-800 rounded-xl py-2 px-3 text-zinc-200 font-mono text-xs"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[9px] text-zinc-400 mb-1 font-mono uppercase">Weekly Cap (₹)</label>
+                      <input
+                        type="number"
+                        min="1"
+                        value={weeklyWithdrawLimit}
+                        onChange={(e) => setWeeklyWithdrawLimit(Number(e.target.value))}
+                        className="w-full bg-slate-950 border border-zinc-800 rounded-xl py-2 px-3 text-zinc-200 font-mono text-xs"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[9px] text-zinc-400 mb-1 font-mono uppercase">Monthly Cap (₹)</label>
+                      <input
+                        type="number"
+                        min="1"
+                        value={monthlyWithdrawLimit}
+                        onChange={(e) => setMonthlyWithdrawLimit(Number(e.target.value))}
+                        className="w-full bg-slate-950 border border-zinc-800 rounded-xl py-2 px-3 text-zinc-200 font-mono text-xs"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Card 2: Schedule Windows & Active Days */}
+                <div className="bg-zinc-950/40 p-5 rounded-2xl border border-zinc-800/80 space-y-4">
+                  <span className="text-[10px] font-mono text-zinc-500 uppercase tracking-wider block">2. Allowed Operating Days & Hours</span>
+
+                  <div>
+                    <div className="flex justify-between items-center mb-1.5">
+                      <label className="block text-[10px] text-zinc-400 font-mono uppercase">Allowed Operating Days</label>
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => setAllowedWithdrawDays("Sunday,Monday,Tuesday,Wednesday,Thursday,Friday,Saturday")}
+                          className="px-2 py-0.5 bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 rounded text-[9px] text-amber-400 font-mono cursor-pointer"
+                        >
+                          All Days
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setAllowedWithdrawDays("Monday,Tuesday,Wednesday,Thursday,Friday")}
+                          className="px-2 py-0.5 bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 rounded text-[9px] text-zinc-300 font-mono cursor-pointer"
+                        >
+                          Weekdays
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setAllowedWithdrawDays("Saturday,Sunday")}
+                          className="px-2 py-0.5 bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 rounded text-[9px] text-zinc-300 font-mono cursor-pointer"
+                        >
+                          Weekends
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Day Selector Chips */}
+                    <div className="flex flex-wrap gap-1.5 pt-1">
+                      {allSevenDays.map((day) => {
+                        const isSelected = allowedDaysArray.some(d => d.toLowerCase() === day.toLowerCase());
+                        return (
+                          <button
+                            type="button"
+                            key={day}
+                            onClick={() => toggleDay(day)}
+                            className={`px-2.5 py-1 rounded-lg border text-[11px] font-medium transition-all cursor-pointer ${
+                              isSelected
+                                ? "bg-amber-500/15 border-amber-500 text-amber-300 font-semibold"
+                                : "bg-slate-950/60 border-zinc-850 text-zinc-500 hover:text-zinc-300"
+                            }`}
+                          >
+                            {day.substring(0, 3)}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3 pt-1">
+                    <div>
+                      <label className="block text-[10px] text-zinc-400 mb-1 font-mono uppercase">Daily Start Hour (HH:MM)</label>
+                      <input
+                        type="text"
+                        value={withdrawStartTime}
+                        onChange={(e) => setWithdrawStartTime(e.target.value)}
+                        placeholder="00:00"
+                        className="w-full bg-slate-950 border border-zinc-800 rounded-xl py-2 px-3 text-zinc-200 font-mono text-xs"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] text-zinc-400 mb-1 font-mono uppercase">Daily End Hour (HH:MM)</label>
+                      <input
+                        type="text"
+                        value={withdrawEndTime}
+                        onChange={(e) => setWithdrawEndTime(e.target.value)}
+                        placeholder="23:59"
+                        className="w-full bg-slate-950 border border-zinc-800 rounded-xl py-2 px-3 text-zinc-200 font-mono text-xs"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="p-3 bg-slate-950/60 border border-zinc-900 rounded-xl flex items-center justify-between pt-2">
+                    <div className="flex items-center space-x-2">
+                      <input
+                        type="checkbox"
+                        id="withdrawEnabledGlobal"
+                        checked={withdrawEnabled}
+                        onChange={(e) => setWithdrawEnabled(e.target.checked)}
+                        className="rounded border-zinc-800 text-amber-500 focus:ring-0 bg-slate-950 w-4 h-4 cursor-pointer"
+                      />
+                      <label htmlFor="withdrawEnabledGlobal" className="text-xs text-zinc-200 select-none font-medium cursor-pointer">
+                        Globally Enable Withdrawal Requests
+                      </label>
+                    </div>
+                    <span className={`text-[10px] font-mono font-bold ${withdrawEnabled ? "text-emerald-400" : "text-red-400"}`}>
+                      {withdrawEnabled ? "ENABLED" : "DISABLED"}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </form>
+          </div>
+        );
+      })()}
 
       {/* 📈 PLATFORM REVENUE ANALYTICS TAB */}
       {activeTab === "revenue" && (() => {
