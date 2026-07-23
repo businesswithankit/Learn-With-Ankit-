@@ -38,6 +38,8 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
   const [industryEarningsRequests, setIndustryEarningsRequests] = useState<IndustryEarningRecord[]>([]);
   const [ieFilterStatus, setIeFilterStatus] = useState<"All" | "Pending" | "Approved" | "Rejected">("Pending");
   const [ieAdminRemarks, setIeAdminRemarks] = useState<{ [id: string]: string }>({});
+  const [editingIeRecord, setEditingIeRecord] = useState<IndustryEarningRecord | null>(null);
+  const [deletingIeRecord, setDeletingIeRecord] = useState<IndustryEarningRecord | null>(null);
   
   // Loading and forms state
   const [loading, setLoading] = useState(true);
@@ -697,10 +699,35 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
   };
 
   // --- Industry Earnings Administration Handlers ---
+  const recalculateUserIndustryEarnings = async (targetUserId: string) => {
+    try {
+      const userApprovedSnap = await getDocs(
+        query(
+          collection(db, "industryEarningsRequests"),
+          where("userId", "==", targetUserId)
+        )
+      );
+
+      let totalApprovedIE = 0;
+      userApprovedSnap.forEach((d) => {
+        const data = d.data();
+        if (data.status === "Approved") {
+          totalApprovedIE += Number(data.amount || 0);
+        }
+      });
+
+      await updateDoc(doc(db, "users", targetUserId), {
+        industryEarnings: totalApprovedIE,
+      });
+    } catch (e) {
+      console.error("Error recalculating user industry earnings:", e);
+    }
+  };
+
   const handleApproveIndustryEarning = async (req: IndustryEarningRecord) => {
     setActionLoading(`ie_approve_${req.id}`);
     try {
-      const remark = ieAdminRemarks[req.id] || "Verified and approved by admin";
+      const remark = ieAdminRemarks[req.id] || req.adminRemark || "Verified and approved by admin";
 
       // 1. Update request status
       await updateDoc(doc(db, "industryEarningsRequests", req.id), {
@@ -710,28 +737,10 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
         reviewedBy: adminUser.username || "Admin",
       });
 
-      // 2. Calculate sum of all approved requests for this user
-      const userApprovedSnap = await getDocs(
-        query(
-          collection(db, "industryEarningsRequests"),
-          where("userId", "==", req.userId)
-        )
-      );
+      // 2. Recalculate total for user
+      await recalculateUserIndustryEarnings(req.userId);
 
-      let totalApprovedIE = 0;
-      userApprovedSnap.forEach((d) => {
-        const data = d.data();
-        if (d.id === req.id || data.status === "Approved") {
-          totalApprovedIE += Number(data.amount || 0);
-        }
-      });
-
-      // 3. Update user profile document in Firestore
-      await updateDoc(doc(db, "users", req.userId), {
-        industryEarnings: totalApprovedIE,
-      });
-
-      // 4. Send notification to user
+      // 3. Send notification to user
       await addDoc(collection(db, "notifications"), {
         userId: req.userId,
         title: "Industry Earnings Approved! 🎉",
@@ -741,7 +750,7 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
         type: "system",
       });
 
-      // 5. Audit Log
+      // 4. Audit Log
       await writeAuditLog(
         "Approve Industry Earnings",
         req.username,
@@ -764,7 +773,7 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
   const handleRejectIndustryEarning = async (req: IndustryEarningRecord) => {
     setActionLoading(`ie_reject_${req.id}`);
     try {
-      const remark = ieAdminRemarks[req.id] || "Verification failed or invalid proof";
+      const remark = ieAdminRemarks[req.id] || req.adminRemark || "Verification failed or invalid proof";
 
       // 1. Update request status
       await updateDoc(doc(db, "industryEarningsRequests", req.id), {
@@ -775,24 +784,7 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
       });
 
       // 2. Recalculate approved total for user
-      const userApprovedSnap = await getDocs(
-        query(
-          collection(db, "industryEarningsRequests"),
-          where("userId", "==", req.userId)
-        )
-      );
-
-      let totalApprovedIE = 0;
-      userApprovedSnap.forEach((d) => {
-        const data = d.data();
-        if (d.id !== req.id && data.status === "Approved") {
-          totalApprovedIE += Number(data.amount || 0);
-        }
-      });
-
-      await updateDoc(doc(db, "users", req.userId), {
-        industryEarnings: totalApprovedIE,
-      });
+      await recalculateUserIndustryEarnings(req.userId);
 
       // 3. Send notification to user
       await addDoc(collection(db, "notifications"), {
@@ -819,6 +811,62 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
     } catch (err: any) {
       console.error("Error rejecting Industry Earnings:", err);
       alert("Failed to reject Industry Earnings: " + (err.message || err));
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleSaveEditIndustryEarning = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingIeRecord) return;
+    setActionLoading(`ie_edit_${editingIeRecord.id}`);
+    try {
+      await updateDoc(doc(db, "industryEarningsRequests", editingIeRecord.id), {
+        platformName: editingIeRecord.platformName,
+        amount: Number(editingIeRecord.amount || 0),
+        startDate: editingIeRecord.startDate,
+        endDate: editingIeRecord.endDate,
+        proofUrl: editingIeRecord.proofUrl || "",
+        status: editingIeRecord.status,
+        adminRemark: editingIeRecord.adminRemark || "",
+        reviewedAt: new Date().toISOString(),
+        reviewedBy: adminUser.username || "Admin",
+      });
+
+      await recalculateUserIndustryEarnings(editingIeRecord.userId);
+
+      await writeAuditLog(
+        "Edit Industry Earning",
+        editingIeRecord.username,
+        `Updated claim for ${editingIeRecord.platformName} (₹${editingIeRecord.amount}, Status: ${editingIeRecord.status})`
+      );
+
+      setEditingIeRecord(null);
+    } catch (err: any) {
+      console.error("Error editing Industry Earning:", err);
+      alert("Failed to save edit: " + (err.message || err));
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleDeleteIndustryEarning = async () => {
+    if (!deletingIeRecord) return;
+    setActionLoading(`ie_delete_${deletingIeRecord.id}`);
+    try {
+      await deleteDoc(doc(db, "industryEarningsRequests", deletingIeRecord.id));
+      await recalculateUserIndustryEarnings(deletingIeRecord.userId);
+
+      await writeAuditLog(
+        "Delete Industry Earning",
+        deletingIeRecord.username,
+        `Deleted record for platform ${deletingIeRecord.platformName} (₹${deletingIeRecord.amount})`
+      );
+
+      setDeletingIeRecord(null);
+    } catch (err: any) {
+      console.error("Error deleting Industry Earning:", err);
+      alert("Failed to delete Industry Earning: " + (err.message || err));
     } finally {
       setActionLoading(null);
     }
@@ -3706,35 +3754,41 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
                             </td>
 
                             <td className="py-3 px-4 text-right">
-                              {isPending ? (
-                                <div className="space-y-2 max-w-xs ml-auto">
-                                  <input
-                                    type="text"
-                                    placeholder="Admin remark (optional)..."
-                                    value={ieAdminRemarks[req.id] || ""}
-                                    onChange={(e) => setIeAdminRemarks({ ...ieAdminRemarks, [req.id]: e.target.value })}
-                                    className="w-full bg-slate-950 border border-zinc-800 rounded-lg py-1 px-2 text-[11px] text-zinc-200 focus:outline-hidden focus:border-amber-500/60"
-                                  />
-                                  <div className="flex items-center justify-end space-x-2">
+                              <div className="space-y-2 max-w-xs ml-auto">
+                                <input
+                                  type="text"
+                                  placeholder="Admin remark..."
+                                  value={ieAdminRemarks[req.id] !== undefined ? ieAdminRemarks[req.id] : (req.adminRemark || "")}
+                                  onChange={(e) => setIeAdminRemarks({ ...ieAdminRemarks, [req.id]: e.target.value })}
+                                  className="w-full bg-slate-950 border border-zinc-800 rounded-lg py-1 px-2 text-[11px] text-zinc-200 focus:outline-hidden focus:border-amber-500/60"
+                                />
+                                <div className="flex items-center justify-end space-x-1.5 flex-wrap gap-y-1">
+                                  {req.status !== "Approved" && (
                                     <button
+                                      type="button"
                                       onClick={() => handleApproveIndustryEarning(req)}
                                       disabled={isApproving || isRejecting}
-                                      className="bg-emerald-600 hover:bg-emerald-500 disabled:bg-zinc-800 text-white font-semibold text-[11px] px-3 py-1 rounded-lg flex items-center space-x-1 cursor-pointer transition-all active:scale-98"
+                                      className="bg-emerald-600 hover:bg-emerald-500 disabled:bg-zinc-800 text-white font-semibold text-[11px] px-2.5 py-1 rounded-lg flex items-center space-x-1 cursor-pointer transition-all active:scale-98 shadow-xs"
+                                      title="Approve Industry Earning"
                                     >
                                       {isApproving ? (
                                         <RefreshCw className="w-3 h-3 animate-spin" />
                                       ) : (
                                         <>
                                           <CheckCircle2 className="w-3 h-3" />
-                                          <span>Approve</span>
+                                          <span>{req.status === "Rejected" ? "Re-Approve" : "Approve"}</span>
                                         </>
                                       )}
                                     </button>
+                                  )}
 
+                                  {req.status !== "Rejected" && (
                                     <button
+                                      type="button"
                                       onClick={() => handleRejectIndustryEarning(req)}
                                       disabled={isApproving || isRejecting}
-                                      className="bg-red-600 hover:bg-red-500 disabled:bg-zinc-800 text-white font-semibold text-[11px] px-3 py-1 rounded-lg flex items-center space-x-1 cursor-pointer transition-all active:scale-98"
+                                      className="bg-red-600 hover:bg-red-500 disabled:bg-zinc-800 text-white font-semibold text-[11px] px-2.5 py-1 rounded-lg flex items-center space-x-1 cursor-pointer transition-all active:scale-98 shadow-xs"
+                                      title="Reject Industry Earning"
                                     >
                                       {isRejecting ? (
                                         <RefreshCw className="w-3 h-3 animate-spin" />
@@ -3745,14 +3799,32 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
                                         </>
                                       )}
                                     </button>
+                                  )}
+
+                                  <button
+                                    type="button"
+                                    onClick={() => setEditingIeRecord({ ...req })}
+                                    className="bg-zinc-800 hover:bg-amber-600/30 hover:border-amber-500/50 text-amber-300 font-semibold text-[11px] p-1.5 rounded-lg border border-zinc-700 cursor-pointer transition-all active:scale-98"
+                                    title="Edit Record"
+                                  >
+                                    <Edit className="w-3.5 h-3.5" />
+                                  </button>
+
+                                  <button
+                                    type="button"
+                                    onClick={() => setDeletingIeRecord(req)}
+                                    className="bg-zinc-800 hover:bg-red-600/30 hover:border-red-500/50 text-red-400 font-semibold text-[11px] p-1.5 rounded-lg border border-zinc-700 cursor-pointer transition-all active:scale-98"
+                                    title="Delete Record"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
+                                {req.reviewedBy && (
+                                  <div className="text-[10px] font-mono text-zinc-500">
+                                    Last reviewed by {req.reviewedBy}
                                   </div>
-                                </div>
-                              ) : (
-                                <div className="text-[10px] font-mono text-zinc-400">
-                                  <div>By: {req.reviewedBy || "Admin"}</div>
-                                  {req.adminRemark && <div className="text-amber-300 italic font-sans">{req.adminRemark}</div>}
-                                </div>
-                              )}
+                                )}
+                              </div>
                             </td>
                           </tr>
                         );
@@ -8433,6 +8505,189 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Industry Earnings Modal */}
+      {editingIeRecord && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-md flex items-center justify-center p-4 z-50 animate-fade-in">
+          <div className="bg-zinc-950 border border-amber-500/30 rounded-3xl p-6 sm:p-8 max-w-lg w-full space-y-5 shadow-2xl relative overflow-hidden">
+            <div className="flex justify-between items-center border-b border-zinc-800 pb-3">
+              <h4 className="text-base font-display font-black text-zinc-100 uppercase tracking-wide flex items-center space-x-2">
+                <Edit className="w-5 h-5 text-amber-500" />
+                <span>Edit Industry Earning Claim</span>
+              </h4>
+              <button
+                type="button"
+                onClick={() => setEditingIeRecord(null)}
+                className="text-zinc-500 hover:text-zinc-200 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveEditIndustryEarning} className="space-y-4 text-xs font-sans">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-[10px] text-zinc-400 font-mono uppercase tracking-wider mb-1">User</label>
+                  <input
+                    type="text"
+                    disabled
+                    value={`${editingIeRecord.username} (${editingIeRecord.email || editingIeRecord.userId})`}
+                    className="w-full bg-zinc-900 border border-zinc-800 rounded-xl py-2 px-3 text-zinc-500 font-mono cursor-not-allowed"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[10px] text-zinc-400 font-mono uppercase tracking-wider mb-1">Platform Name</label>
+                  <input
+                    type="text"
+                    required
+                    value={editingIeRecord.platformName}
+                    onChange={(e) => setEditingIeRecord({ ...editingIeRecord, platformName: e.target.value })}
+                    className="w-full bg-slate-950 border border-zinc-800 rounded-xl py-2 px-3 text-zinc-100 focus:outline-hidden focus:border-amber-500/60"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-[10px] text-zinc-400 font-mono uppercase tracking-wider mb-1">Claimed Amount (₹)</label>
+                  <input
+                    type="number"
+                    min={0}
+                    required
+                    value={editingIeRecord.amount}
+                    onChange={(e) => setEditingIeRecord({ ...editingIeRecord, amount: Number(e.target.value) })}
+                    className="w-full bg-slate-950 border border-zinc-800 rounded-xl py-2 px-3 text-zinc-100 font-mono font-bold focus:outline-hidden focus:border-amber-500/60"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[10px] text-zinc-400 font-mono uppercase tracking-wider mb-1">Approval Status</label>
+                  <select
+                    value={editingIeRecord.status}
+                    onChange={(e) => setEditingIeRecord({ ...editingIeRecord, status: e.target.value as "Pending" | "Approved" | "Rejected" })}
+                    className="w-full bg-slate-950 border border-zinc-800 rounded-xl py-2 px-3 text-zinc-100 font-mono focus:outline-hidden focus:border-amber-500/60 cursor-pointer"
+                  >
+                    <option value="Pending">Pending</option>
+                    <option value="Approved">Approved</option>
+                    <option value="Rejected">Rejected</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-[10px] text-zinc-400 font-mono uppercase tracking-wider mb-1">Start Date</label>
+                  <input
+                    type="date"
+                    value={editingIeRecord.startDate}
+                    onChange={(e) => setEditingIeRecord({ ...editingIeRecord, startDate: e.target.value })}
+                    className="w-full bg-slate-950 border border-zinc-800 rounded-xl py-2 px-3 text-zinc-100 font-mono focus:outline-hidden focus:border-amber-500/60"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[10px] text-zinc-400 font-mono uppercase tracking-wider mb-1">End Date</label>
+                  <input
+                    type="date"
+                    value={editingIeRecord.endDate}
+                    onChange={(e) => setEditingIeRecord({ ...editingIeRecord, endDate: e.target.value })}
+                    className="w-full bg-slate-950 border border-zinc-800 rounded-xl py-2 px-3 text-zinc-100 font-mono focus:outline-hidden focus:border-amber-500/60"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-[10px] text-zinc-400 font-mono uppercase tracking-wider mb-1">Proof Link URL</label>
+                <input
+                  type="url"
+                  value={editingIeRecord.proofUrl || ""}
+                  onChange={(e) => setEditingIeRecord({ ...editingIeRecord, proofUrl: e.target.value })}
+                  placeholder="https://..."
+                  className="w-full bg-slate-950 border border-zinc-800 rounded-xl py-2 px-3 text-zinc-100 font-mono focus:outline-hidden focus:border-amber-500/60"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[10px] text-zinc-400 font-mono uppercase tracking-wider mb-1">Admin Remark</label>
+                <input
+                  type="text"
+                  value={editingIeRecord.adminRemark || ""}
+                  onChange={(e) => setEditingIeRecord({ ...editingIeRecord, adminRemark: e.target.value })}
+                  placeholder="Reason or notes..."
+                  className="w-full bg-slate-950 border border-zinc-800 rounded-xl py-2 px-3 text-zinc-100 focus:outline-hidden focus:border-amber-500/60"
+                />
+              </div>
+
+              <div className="flex space-x-3 pt-3">
+                <button
+                  type="button"
+                  onClick={() => setEditingIeRecord(null)}
+                  className="flex-1 py-2.5 bg-zinc-900 hover:bg-zinc-800 text-zinc-300 rounded-xl border border-zinc-800 font-bold uppercase tracking-wider text-xs cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={actionLoading === `ie_edit_${editingIeRecord.id}`}
+                  className="flex-1 py-2.5 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-black uppercase tracking-wider text-xs rounded-xl cursor-pointer shadow-lg flex items-center justify-center space-x-1.5"
+                >
+                  {actionLoading === `ie_edit_${editingIeRecord.id}` ? (
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <>
+                      <Save className="w-4 h-4" />
+                      <span>Save Changes</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Industry Earnings Confirmation Modal */}
+      {deletingIeRecord && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-md flex items-center justify-center p-4 z-50 animate-fade-in">
+          <div className="bg-zinc-950 border border-red-500/30 rounded-3xl p-6 sm:p-8 max-w-sm w-full space-y-4 shadow-2xl relative overflow-hidden">
+            <h4 className="text-base font-display font-black text-zinc-100 uppercase tracking-wide flex items-center space-x-2 text-red-400">
+              <Trash2 className="w-5 h-5 text-red-500" />
+              <span>Delete Industry Earning</span>
+            </h4>
+
+            <p className="text-zinc-300 text-xs leading-relaxed font-sans">
+              Are you sure you want to permanently delete the claim for <strong className="text-zinc-100">{deletingIeRecord.platformName}</strong> (₹{deletingIeRecord.amount.toLocaleString("en-IN")}) submitted by <strong className="text-zinc-100">{deletingIeRecord.username}</strong>?
+            </p>
+
+            <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-xl text-[11px] text-red-400 leading-relaxed font-sans">
+              ⚠️ This action will remove the record completely and recalculate the user's dashboard industry earnings automatically.
+            </div>
+
+            <div className="flex space-x-3 pt-2 text-xs font-bold uppercase tracking-wider">
+              <button
+                type="button"
+                onClick={() => setDeletingIeRecord(null)}
+                className="flex-1 py-3 bg-zinc-900 hover:bg-zinc-800 text-zinc-400 rounded-2xl border border-zinc-800 cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleDeleteIndustryEarning}
+                disabled={actionLoading === `ie_delete_${deletingIeRecord.id}`}
+                className="flex-1 py-3 bg-red-600 hover:bg-red-500 text-white font-bold rounded-2xl cursor-pointer shadow-lg flex items-center justify-center"
+              >
+                {actionLoading === `ie_delete_${deletingIeRecord.id}` ? (
+                  <RefreshCw className="w-4 h-4 animate-spin" />
+                ) : (
+                  "Confirm Delete"
+                )}
+              </button>
+            </div>
           </div>
         </div>
       )}
