@@ -33,87 +33,6 @@ import {
 
 type ActivePage = string;
 
-function LoginDataLoader({ message = "Synchronizing System Data..." }: { message?: string }) {
-  const [progress, setProgress] = useState(15);
-  const [stageIndex, setStageIndex] = useState(0);
-
-  const stages = [
-    "Establishing Encrypted TLS Handshake...",
-    "Querying Vault Ledger & Security Rules...",
-    "Validating System Configuration & Metadata...",
-    "Finalizing Access Credentials & Session State..."
-  ];
-
-  useEffect(() => {
-    const timer = setInterval(() => {
-      setProgress((prev) => {
-        if (prev >= 94) return prev;
-        return prev + Math.floor(Math.random() * 12) + 4;
-      });
-    }, 250);
-
-    const stageTimer = setInterval(() => {
-      setStageIndex((prev) => (prev + 1) % stages.length);
-    }, 750);
-
-    return () => {
-      clearInterval(timer);
-      clearInterval(stageTimer);
-    };
-  }, []);
-
-  return (
-    <div className="py-5 space-y-4 text-center font-sans">
-      {/* Animated Glowing Orbital Ring */}
-      <div className="relative w-18 h-18 mx-auto flex items-center justify-center">
-        <div className="absolute inset-0 rounded-full border-2 border-amber-500/20 animate-ping opacity-65" />
-        <div className="absolute inset-0 rounded-full border-t-2 border-r-2 border-amber-400 animate-spin" />
-        <div className="w-12 h-12 rounded-full bg-slate-950 border border-amber-500/40 flex items-center justify-center shadow-[0_0_25px_rgba(245,158,11,0.25)]">
-          <Cpu className="w-6 h-6 text-amber-400 animate-pulse" />
-        </div>
-      </div>
-
-      {/* Loading Message & Active Stage */}
-      <div className="space-y-1">
-        <h4 className="text-xs font-mono font-bold text-amber-400 uppercase tracking-widest flex items-center justify-center space-x-1.5">
-          <Activity className="w-3.5 h-3.5 animate-pulse text-amber-400" />
-          <span>{message}</span>
-        </h4>
-        <p className="text-[10px] text-zinc-400 font-mono h-5 flex items-center justify-center space-x-1">
-          <Terminal className="w-3 h-3 text-zinc-500 shrink-0" />
-          <span className="truncate max-w-[280px]">{stages[stageIndex]}</span>
-        </p>
-      </div>
-
-      {/* Progress Bar & Percentage */}
-      <div className="space-y-1.5 max-w-xs mx-auto">
-        <div className="flex justify-between text-[10px] font-mono text-zinc-500">
-          <span>DATA_SYNC</span>
-          <span className="text-amber-400 font-bold">{progress}%</span>
-        </div>
-        <div className="w-full h-1.5 bg-slate-900 border border-zinc-800 rounded-full overflow-hidden p-0.5">
-          <div
-            className="h-full bg-gradient-to-r from-amber-500 via-yellow-400 to-amber-300 rounded-full transition-all duration-300 shadow-[0_0_12px_rgba(245,158,11,0.6)]"
-            style={{ width: `${progress}%` }}
-          />
-        </div>
-      </div>
-
-      {/* Status Badges */}
-      <div className="flex justify-center items-center gap-2 pt-1">
-        <span className="px-2.5 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-[9px] font-mono text-emerald-400 flex items-center space-x-1">
-          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping" />
-          <span>VAULT_CONNECTED</span>
-        </span>
-        <span className="px-2.5 py-0.5 rounded-full bg-amber-500/10 border border-amber-500/20 text-[9px] font-mono text-amber-400 flex items-center space-x-1">
-          <Wifi className="w-2.5 h-2.5" />
-          <span>TLS 1.3 SECURE</span>
-        </span>
-      </div>
-    </div>
-  );
-}
-
 export default function App() {
   const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);
   const [authUser, setAuthUser] = useState<any>(null);
@@ -705,9 +624,10 @@ export default function App() {
 
           {/* Data Loading States */}
           {authLoading ? (
-            <LoginDataLoader message="Loading Vault & System Configurations..." />
-          ) : loginLoading ? (
-            <LoginDataLoader message="Authenticating & Syncing Session..." />
+            <div className="py-8 text-center">
+              <RefreshCw className="w-6 h-6 text-amber-400 animate-spin mx-auto mb-2" />
+              <p className="text-xs text-zinc-400 font-mono">Loading portal...</p>
+            </div>
           ) : (
             <form onSubmit={handleLogin} className="space-y-4 pt-1">
               {maintenanceMode && (
