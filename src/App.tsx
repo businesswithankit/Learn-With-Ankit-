@@ -1100,81 +1100,208 @@ export default function App() {
             <>
               {activePage === "dashboard" && (
             <div className="space-y-8 max-w-5xl mx-auto animate-fade-in">
-              {/* Profile Top bar */}
-              <div className="flex flex-col sm:flex-row items-center justify-between p-5 rounded-2xl glass-panel border border-zinc-800 shadow-xl gap-4">
-                <div className="flex items-center space-x-4">
-                  {activeUser.profilePic ? (
-                    <img
-                      src={activeUser.profilePic}
-                      alt={activeUser.username || "User"}
-                      className="w-14 h-14 rounded-xl object-cover border border-zinc-800"
-                      referrerPolicy="no-referrer"
-                    />
-                  ) : (
-                    <div className="w-14 h-14 rounded-xl bg-gradient-to-tr from-zinc-800 to-zinc-900 border border-zinc-700/60 flex items-center justify-center font-display font-extrabold text-zinc-300 text-lg">
-                      {(activeUser.username || "U").charAt(0).toUpperCase()}
-                    </div>
-                  )}
-                  <div className="font-sans space-y-0.5">
-                    <div className="flex items-center space-x-2">
-                      <h2 className="text-base font-display font-bold text-zinc-100">{activeUser.username || "User"}</h2>
-                      <span className="text-[9px] uppercase tracking-widest font-bold bg-amber-500/10 border border-amber-500/30 text-amber-400 px-1.5 py-0.5 rounded-sm">
-                        {activeUser.accountStatus || "Active"}
-                      </span>
-                    </div>
-                    <p className="text-[10px] text-zinc-500 font-mono">Affiliate User ID: {activeUser.customUserId || activeUser.userId || "N/A"}</p>
-                    <p className="text-[10px] text-zinc-400">Join Date: {activeUser.joinDate || "N/A"}</p>
+              {/* Profile Top Banner Card matching reference layout */}
+              <div className="relative rounded-3xl bg-zinc-950 border border-zinc-800 p-6 sm:p-7 shadow-2xl overflow-hidden">
+                {/* Background decorative top accent */}
+                <div className="absolute top-0 right-0 left-0 h-1 bg-gradient-to-r from-amber-500 via-orange-500 to-amber-400" />
+
+                {/* Top Right Badge / Plan Banner */}
+                <div className="absolute top-0 right-0">
+                  <div className="bg-gradient-to-r from-purple-600 to-indigo-600 text-white font-display font-black text-xs sm:text-sm px-5 py-2 rounded-bl-2xl shadow-lg flex items-center space-x-1.5 uppercase tracking-wider">
+                    <Sparkles className="w-4 h-4 fill-white text-white" />
+                    <span>{activeUser.customBadge || activeUser.badge || "Premium Wave"}</span>
                   </div>
                 </div>
 
-                <div className="flex space-x-3 items-center">
-                  <div className="text-center bg-slate-950/65 px-4 py-2 rounded-xl border border-zinc-900">
-                    <span className="text-[8px] uppercase tracking-wider text-zinc-500 font-mono block">Achievement level</span>
-                    <span className="text-xs font-display font-bold text-amber-400">
-                      {badges.find(b => b.name === activeUser.badge)?.icon || "★"}{" "}
-                      {(activeUser.customBadge || activeUser.badge || "Bronze").toUpperCase()} Badge
-                    </span>
+                <div className="flex flex-col sm:flex-row items-center sm:items-start gap-5 pt-4 sm:pt-2">
+                  {/* Avatar Circle */}
+                  <div className="relative group shrink-0">
+                    {activeUser.profilePic ? (
+                      <img
+                        src={activeUser.profilePic}
+                        alt={activeUser.username || "User"}
+                        className="w-20 h-20 sm:w-24 sm:h-24 rounded-full object-cover border-4 border-amber-500/40 shadow-2xl bg-zinc-900"
+                        referrerPolicy="no-referrer"
+                      />
+                    ) : (
+                      <div className="w-20 h-20 sm:w-24 sm:h-24 rounded-full bg-gradient-to-tr from-amber-600 via-zinc-800 to-zinc-900 border-4 border-amber-500/40 flex items-center justify-center font-display font-black text-zinc-100 text-2xl shadow-2xl">
+                        {(activeUser.username || "U").charAt(0).toUpperCase()}
+                      </div>
+                    )}
+                    <span className="absolute bottom-1 right-1 w-4 h-4 bg-emerald-500 border-2 border-zinc-950 rounded-full" title="Active Online" />
                   </div>
-                  {(activeUser as any).customRank && (
-                    <div className="text-center bg-slate-950/65 px-4 py-2 rounded-xl border border-zinc-900">
-                      <span className="text-[8px] uppercase tracking-wider text-zinc-500 font-mono block">Custom Rank</span>
-                      <span className="text-xs font-display font-bold text-emerald-400">{(activeUser as any).customRank}</span>
+
+                  {/* User Details */}
+                  <div className="text-center sm:text-left space-y-2 flex-1">
+                    <h2 className="text-2xl sm:text-3xl font-display font-black text-zinc-100 uppercase tracking-tight">
+                      {activeUser.username || "User Name"}
+                    </h2>
+
+                    {/* User ID Row with Copy Button */}
+                    <div className="inline-flex items-center space-x-2 bg-slate-900/90 border border-zinc-800 px-3.5 py-1.5 rounded-xl font-mono text-xs sm:text-sm text-zinc-300 shadow-inner">
+                      <span className="font-semibold text-zinc-400">User ID :</span>
+                      <strong className="text-amber-400 font-bold">{activeUser.customUserId || activeUser.userId || "N/A"}</strong>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const val = activeUser.customUserId || activeUser.userId || "";
+                          if (val) {
+                            navigator.clipboard.writeText(val);
+                            setCopiedUserId(true);
+                            setTimeout(() => setCopiedUserId(false), 2000);
+                          }
+                        }}
+                        className="p-1 text-zinc-400 hover:text-amber-400 hover:bg-zinc-800 rounded-md transition-colors cursor-pointer"
+                        title="Copy User ID"
+                      >
+                        {copiedUserId ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
+                      </button>
+                      {copiedUserId && (
+                        <span className="text-[10px] text-emerald-400 font-bold animate-fade-in">Copied!</span>
+                      )}
                     </div>
-                  )}
+
+                    {/* Status & Rank Pills */}
+                    <div className="flex flex-wrap items-center justify-center sm:justify-start gap-2 pt-1">
+                      <span className="px-3 py-1 rounded-full text-[10px] font-mono font-bold uppercase tracking-wider bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                        ● {activeUser.accountStatus || "Active"}
+                      </span>
+                      <span className="px-3 py-1 rounded-full text-[10px] font-mono font-bold uppercase tracking-wider bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                        🏆 Rank: {(activeUser as any).customRank || "Standard"}
+                      </span>
+                      {activeUser.joinDate && (
+                        <span className="px-3 py-1 rounded-full text-[10px] font-mono text-zinc-400 bg-zinc-900 border border-zinc-800">
+                          Joined: {activeUser.joinDate}
+                        </span>
+                      )}
+                    </div>
+                  </div>
                 </div>
               </div>
 
-              {/* Earnings Counters section */}
-              <div className="space-y-3.5">
-                <div className="flex items-center space-x-2">
-                  <Sparkles className="w-4 h-4 text-amber-400" />
-                  <h3 className="text-xs font-mono uppercase tracking-widest text-zinc-400">Chronological Earnings Counters</h3>
+              {/* 4 Revenue Stat Cards (2x2 Grid) in website dark theme styling */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-5">
+                {/* Card 1: Today's Revenue */}
+                <div className="relative rounded-3xl bg-gradient-to-br from-blue-950/70 via-zinc-950 to-zinc-900 border border-blue-500/30 p-6 shadow-xl space-y-4 group hover:border-blue-400/60 transition-all">
+                  <div className="flex items-start justify-between">
+                    <div className="space-y-1">
+                      <div className="text-3xl sm:text-4xl font-display font-black text-zinc-100 flex items-center">
+                        ₹&nbsp;<AnimatedCounter value={activeUser.todayEarnings || 0} />
+                      </div>
+                      <h3 className="text-sm sm:text-base font-display font-bold text-blue-300">
+                        Today's Revenue
+                      </h3>
+                    </div>
+                    <div className="w-12 h-12 rounded-full bg-blue-500/20 border border-blue-500/40 flex items-center justify-center text-blue-400 shadow-inner shrink-0">
+                      <CreditCard className="w-6 h-6" />
+                    </div>
+                  </div>
+                  <div className="pt-3 border-t border-blue-500/20">
+                    <button
+                      type="button"
+                      onClick={() => setRevenueDetailModal({
+                        title: "Today's Revenue",
+                        amount: activeUser.todayEarnings || 0,
+                        period: "Today"
+                      })}
+                      className="text-xs font-semibold text-blue-300 hover:text-blue-100 flex items-center space-x-1 group-hover:translate-x-1 transition-transform cursor-pointer"
+                    >
+                      <span>Click here to view detail(s)</span>
+                      <ExternalLink className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                  <div className="bg-zinc-950/35 border border-zinc-900/80 rounded-xl p-4 space-y-2 hover:border-zinc-800 transition-colors">
-                    <span className="text-[10px] uppercase font-mono text-zinc-500 tracking-wider block">Today's Earnings</span>
-                    <div className="text-xl font-display">
-                      <AnimatedCounter value={activeUser.todayEarnings || 0} />
+                {/* Card 2: Last 7 Days Revenue */}
+                <div className="relative rounded-3xl bg-gradient-to-br from-purple-950/70 via-zinc-950 to-zinc-900 border border-purple-500/30 p-6 shadow-xl space-y-4 group hover:border-purple-400/60 transition-all">
+                  <div className="flex items-start justify-between">
+                    <div className="space-y-1">
+                      <div className="text-3xl sm:text-4xl font-display font-black text-zinc-100 flex items-center">
+                        ₹&nbsp;<AnimatedCounter value={activeUser.last7DaysEarnings || 0} />
+                      </div>
+                      <h3 className="text-sm sm:text-base font-display font-bold text-purple-300">
+                        Last 7 Days Revenue
+                      </h3>
+                    </div>
+                    <div className="w-12 h-12 rounded-full bg-purple-500/20 border border-purple-500/40 flex items-center justify-center text-purple-400 shadow-inner shrink-0">
+                      <BarChart2 className="w-6 h-6" />
                     </div>
                   </div>
-                  <div className="bg-zinc-950/35 border border-zinc-900/80 rounded-xl p-4 space-y-2 hover:border-zinc-800 transition-colors">
-                    <span className="text-[10px] uppercase font-mono text-zinc-500 tracking-wider block">Last 7 Days Earnings</span>
-                    <div className="text-xl font-display">
-                      <AnimatedCounter value={activeUser.last7DaysEarnings || 0} />
+                  <div className="pt-3 border-t border-purple-500/20">
+                    <button
+                      type="button"
+                      onClick={() => setRevenueDetailModal({
+                        title: "Last 7 Days Revenue",
+                        amount: activeUser.last7DaysEarnings || 0,
+                        period: "Last 7 Days"
+                      })}
+                      className="text-xs font-semibold text-purple-300 hover:text-purple-100 flex items-center space-x-1 group-hover:translate-x-1 transition-transform cursor-pointer"
+                    >
+                      <span>Click here to view detail(s)</span>
+                      <ExternalLink className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
+
+                {/* Card 3: Last 30 Days Revenue */}
+                <div className="relative rounded-3xl bg-gradient-to-br from-indigo-950/70 via-zinc-950 to-zinc-900 border border-indigo-500/30 p-6 shadow-xl space-y-4 group hover:border-indigo-400/60 transition-all">
+                  <div className="flex items-start justify-between">
+                    <div className="space-y-1">
+                      <div className="text-3xl sm:text-4xl font-display font-black text-zinc-100 flex items-center">
+                        ₹&nbsp;<AnimatedCounter value={activeUser.last30DaysEarnings || 0} />
+                      </div>
+                      <h3 className="text-sm sm:text-base font-display font-bold text-indigo-300">
+                        Last 30 Days Revenue
+                      </h3>
+                    </div>
+                    <div className="w-12 h-12 rounded-full bg-indigo-500/20 border border-indigo-500/40 flex items-center justify-center text-indigo-400 shadow-inner shrink-0">
+                      <GraduationCap className="w-6 h-6" />
                     </div>
                   </div>
-                  <div className="bg-zinc-950/35 border border-zinc-900/80 rounded-xl p-4 space-y-2 hover:border-zinc-800 transition-colors">
-                    <span className="text-[10px] uppercase font-mono text-zinc-500 tracking-wider block">Last 30 Days Earnings</span>
-                    <div className="text-xl font-display">
-                      <AnimatedCounter value={activeUser.last30DaysEarnings || 0} />
+                  <div className="pt-3 border-t border-indigo-500/20">
+                    <button
+                      type="button"
+                      onClick={() => setRevenueDetailModal({
+                        title: "Last 30 Days Revenue",
+                        amount: activeUser.last30DaysEarnings || 0,
+                        period: "Last 30 Days"
+                      })}
+                      className="text-xs font-semibold text-indigo-300 hover:text-indigo-100 flex items-center space-x-1 group-hover:translate-x-1 transition-transform cursor-pointer"
+                    >
+                      <span>Click here to view detail(s)</span>
+                      <ExternalLink className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
+
+                {/* Card 4: All Time Revenue */}
+                <div className="relative rounded-3xl bg-gradient-to-br from-rose-950/70 via-zinc-950 to-zinc-900 border border-rose-500/30 p-6 shadow-xl space-y-4 group hover:border-rose-400/60 transition-all">
+                  <div className="flex items-start justify-between">
+                    <div className="space-y-1">
+                      <div className="text-3xl sm:text-4xl font-display font-black text-zinc-100 flex items-center">
+                        ₹&nbsp;<AnimatedCounter value={activeUser.totalEarnings || 0} />
+                      </div>
+                      <h3 className="text-sm sm:text-base font-display font-bold text-rose-300">
+                        All Time Revenue
+                      </h3>
+                    </div>
+                    <div className="w-12 h-12 rounded-full bg-rose-500/20 border border-rose-500/40 flex items-center justify-center text-rose-400 shadow-inner shrink-0">
+                      <Trophy className="w-6 h-6" />
                     </div>
                   </div>
-                  <div className="bg-zinc-950/35 border border-zinc-900/80 rounded-xl p-4 space-y-2 hover:border-zinc-800 transition-colors">
-                    <span className="text-[10px] uppercase font-mono text-zinc-500 tracking-wider block">Lifetime Cumulative Earnings</span>
-                    <div className="text-xl font-display">
-                      <AnimatedCounter value={activeUser.totalEarnings || 0} />
-                    </div>
+                  <div className="pt-3 border-t border-rose-500/20">
+                    <button
+                      type="button"
+                      onClick={() => setRevenueDetailModal({
+                        title: "All Time Revenue",
+                        amount: activeUser.totalEarnings || 0,
+                        period: "All Time"
+                      })}
+                      className="text-xs font-semibold text-rose-300 hover:text-rose-100 flex items-center space-x-1 group-hover:translate-x-1 transition-transform cursor-pointer"
+                    >
+                      <span>Click here to view detail(s)</span>
+                      <ExternalLink className="w-3.5 h-3.5" />
+                    </button>
                   </div>
                 </div>
               </div>
