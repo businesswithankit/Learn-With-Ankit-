@@ -48,6 +48,27 @@ export interface UserProfile {
   customBadge?: string;
   badgeMode?: 'auto' | 'manual';
   membershipStatus?: 'Active' | 'Expired' | 'Cancelled';
+  industryEarnings?: number;
+}
+
+export interface IndustryEarningRecord {
+  id: string;
+  userId: string;
+  customUserId?: string;
+  username: string;
+  email?: string;
+  phone?: string;
+  platformName: string;
+  startDate: string;
+  endDate: string;
+  amount: number;
+  proofUrl?: string;
+  status: 'Pending' | 'Approved' | 'Rejected';
+  timestamp: any;
+  submittedAt: string;
+  adminRemark?: string;
+  reviewedAt?: string;
+  reviewedBy?: string;
 }
 
 export interface PaymentRequest {

@@ -2,7 +2,7 @@ import React, { useState, useEffect } from "react";
 import { onAuthStateChanged, signInWithEmailAndPassword, signOut, createUserWithEmailAndPassword } from "firebase/auth";
 import { doc, onSnapshot, setDoc, addDoc, collection, serverTimestamp, query, where, getDoc, updateDoc, writeBatch, orderBy } from "firebase/firestore";
 import { auth, db } from "./firebase";
-import { UserProfile, PaymentRequest } from "./types";
+import { UserProfile, PaymentRequest, IndustryEarningRecord } from "./types";
 import { calculateUserRollingEarnings } from "./utils/earnings";
 
 // Component imports
@@ -29,7 +29,7 @@ import {
   Trophy, Wallet, CreditCard, Landmark, History, Award, Shield, User, 
   LogOut, ShieldAlert, Key, AlertCircle, RefreshCw, Layers, Sparkles, HelpCircle, X, Menu, Settings,
   Cpu, Activity, Terminal, Wifi, Lock, ShieldCheck, Database, CheckCircle2,
-  BarChart2, GraduationCap, Copy, Check, ExternalLink
+  BarChart2, GraduationCap, Copy, Check, ExternalLink, Briefcase, Clock
 } from "lucide-react";
 
 type ActivePage = string;
@@ -77,6 +77,8 @@ export default function App() {
     amount: number;
     period: string;
   } | null>(null);
+  const [industryDetailModal, setIndustryDetailModal] = useState(false);
+  const [userIndustryRequests, setUserIndustryRequests] = useState<IndustryEarningRecord[]>([]);
 
   // Global document title sync
   useEffect(() => {
@@ -510,6 +512,22 @@ export default function App() {
     last30DaysEarnings: 0,
     totalEarnings: 0,
   } : null);
+
+  useEffect(() => {
+    if (!activeUser?.userId) return;
+    const q = query(
+      collection(db, "industryEarningsRequests"),
+      where("userId", "==", activeUser.userId)
+    );
+    const unsub = onSnapshot(q, (snapshot) => {
+      const list: IndustryEarningRecord[] = [];
+      snapshot.forEach((doc) => {
+        list.push({ id: doc.id, ...doc.data() } as IndustryEarningRecord);
+      });
+      setUserIndustryRequests(list);
+    });
+    return () => unsub();
+  }, [activeUser?.userId]);
 
   const getNavItemIcon = (id: string) => {
     switch (id) {
@@ -1306,6 +1324,46 @@ export default function App() {
                 </div>
               </div>
 
+              {/* Industry Earnings Dedicated Dashboard Card */}
+              <div className="relative rounded-3xl bg-gradient-to-br from-emerald-950/70 via-zinc-950 to-zinc-900 border border-emerald-500/30 p-6 shadow-xl space-y-4 group hover:border-emerald-400/60 transition-all">
+                <div className="flex items-start justify-between">
+                  <div className="space-y-1">
+                    <div className="text-3xl sm:text-4xl font-display font-black text-zinc-100 flex items-center">
+                      ₹&nbsp;<AnimatedCounter value={activeUser.industryEarnings || 0} />
+                    </div>
+                    <h3 className="text-sm sm:text-base font-display font-bold text-emerald-300 flex items-center space-x-2">
+                      <span>Industry Earnings</span>
+                      <span className="text-[10px] font-mono font-medium text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20">
+                        Previous Platform Work
+                      </span>
+                    </h3>
+                    <p className="text-xs text-zinc-400 font-sans">
+                      Verified earnings from prior platforms (e.g. Zee Platform) approved by administration.
+                    </p>
+                  </div>
+                  <div className="w-12 h-12 rounded-full bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-emerald-400 shadow-inner shrink-0">
+                    <Briefcase className="w-6 h-6" />
+                  </div>
+                </div>
+                <div className="pt-3 border-t border-emerald-500/20 flex items-center justify-between">
+                  <button
+                    type="button"
+                    onClick={() => setIndustryDetailModal(true)}
+                    className="text-xs font-semibold text-emerald-300 hover:text-emerald-100 flex items-center space-x-1 group-hover:translate-x-1 transition-transform cursor-pointer"
+                  >
+                    <span>Click here to view detail(s)</span>
+                    <ExternalLink className="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setActivePage("profile")}
+                    className="text-[11px] font-mono text-zinc-400 hover:text-emerald-300 underline cursor-pointer"
+                  >
+                    + Submit Claim
+                  </button>
+                </div>
+              </div>
+
               {/* Wallet Card Center Stage */}
               <div className="flex flex-col items-center space-y-4 pt-4 border-t border-zinc-900 pb-4">
                 <h3 className="text-xs font-mono uppercase tracking-widest text-zinc-500">Premium Wallet Balance Card</h3>
@@ -1521,6 +1579,95 @@ export default function App() {
               <button
                 type="button"
                 onClick={() => setRevenueDetailModal(null)}
+                className="py-2.5 px-4 bg-zinc-900 hover:bg-zinc-800 text-zinc-300 font-semibold rounded-xl text-xs transition-all cursor-pointer border border-zinc-800"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* INDUSTRY EARNINGS DETAIL POPUP MODAL */}
+      {industryDetailModal && (
+        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4 animate-fade-in">
+          <div className="bg-zinc-950 border border-zinc-800 rounded-3xl max-w-lg w-full p-6 shadow-2xl space-y-5 relative max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between pb-3 border-b border-zinc-850">
+              <h3 className="text-base font-display font-bold text-zinc-100 flex items-center space-x-2">
+                <Briefcase className="w-4 h-4 text-emerald-400" />
+                <span>Industry Earnings Breakdown</span>
+              </h3>
+              <button
+                type="button"
+                onClick={() => setIndustryDetailModal(false)}
+                className="p-1.5 text-zinc-400 hover:text-zinc-100 hover:bg-zinc-900 rounded-xl transition-all cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="bg-emerald-950/20 border border-emerald-500/30 p-5 rounded-2xl text-center space-y-1">
+              <span className="text-[10px] font-mono uppercase tracking-widest text-emerald-400 block">
+                Total Verified Industry Earnings
+              </span>
+              <div className="text-3xl font-display font-black text-emerald-400">
+                ₹ {(activeUser?.industryEarnings || 0).toLocaleString("en-IN")}
+              </div>
+              <p className="text-[11px] text-zinc-400 font-sans pt-1">
+                This field displays verified earnings from prior platforms (e.g. Zee Platform) verified and approved by administration.
+              </p>
+            </div>
+
+            <div className="space-y-3">
+              <h4 className="text-xs font-mono uppercase tracking-wider text-zinc-400 flex items-center justify-between">
+                <span>Submitted Claims ({userIndustryRequests.length})</span>
+              </h4>
+
+              {userIndustryRequests.length === 0 ? (
+                <div className="p-4 rounded-xl bg-zinc-900/40 border border-zinc-800 text-center space-y-2">
+                  <p className="text-xs text-zinc-400 font-sans">You haven't submitted any Industry Earnings verification claims yet.</p>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {userIndustryRequests.map((req) => (
+                    <div key={req.id} className="p-3.5 rounded-xl bg-zinc-900/50 border border-zinc-800 flex items-center justify-between gap-3 text-xs">
+                      <div className="space-y-0.5">
+                        <div className="font-bold text-zinc-100 flex items-center space-x-2">
+                          <span>{req.platformName}</span>
+                          <span className={`text-[9px] font-mono px-2 py-0.25 rounded-full border ${
+                            req.status === 'Approved' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' :
+                            req.status === 'Rejected' ? 'bg-red-500/10 text-red-400 border-red-500/20' :
+                            'bg-amber-500/10 text-amber-400 border-amber-500/20'
+                          }`}>
+                            {req.status}
+                          </span>
+                        </div>
+                        <p className="text-[10px] text-zinc-400 font-mono">Period: {req.startDate} to {req.endDate}</p>
+                        {req.adminRemark && <p className="text-[11px] text-amber-300 italic">Remark: {req.adminRemark}</p>}
+                      </div>
+                      <div className="text-right font-mono font-black text-emerald-400 text-sm">
+                        ₹{req.amount.toLocaleString("en-IN")}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="pt-2 flex flex-col sm:flex-row gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setIndustryDetailModal(false);
+                  setActivePage("profile");
+                }}
+                className="flex-1 py-2.5 px-4 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl text-xs transition-all text-center cursor-pointer shadow-md"
+              >
+                Submit / Manage Claim in Profile
+              </button>
+              <button
+                type="button"
+                onClick={() => setIndustryDetailModal(false)}
                 className="py-2.5 px-4 bg-zinc-900 hover:bg-zinc-800 text-zinc-300 font-semibold rounded-xl text-xs transition-all cursor-pointer border border-zinc-800"
               >
                 Close

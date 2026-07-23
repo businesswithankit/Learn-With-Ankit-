@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from "react";
-import { collection, query, onSnapshot, doc, getDoc, updateDoc, setDoc, addDoc, deleteDoc, serverTimestamp, runTransaction, writeBatch, getDocs, orderBy } from "firebase/firestore";
+import { collection, query, where, onSnapshot, doc, getDoc, updateDoc, setDoc, addDoc, deleteDoc, serverTimestamp, runTransaction, writeBatch, getDocs, orderBy } from "firebase/firestore";
 import { createUserWithEmailAndPassword } from "firebase/auth";
 import { db, handleFirestoreError, OperationType, getSecondaryAuth } from "../firebase";
-import { UserProfile, PaymentRequest, WithdrawalRequest, AuditLog, Announcement, Challenge, ChallengeProgress, CoFounderPermissions, ChallengeLead, MembershipPlan, PlatformFees, WithdrawalSettings, PlatformRevenue, RevenueTransaction, Service, ServicePurchase } from "../types";
-import { Users, CreditCard, ShieldCheck, Megaphone, Terminal, Search, UserPlus, Check, CheckCircle, X, FileSpreadsheet, PlusCircle, AlertCircle, RefreshCw, Send, DollarSign, ShieldAlert, Settings, Bell, Trophy, Award, Landmark, Hourglass, ClipboardCheck, Sparkles, AlertTriangle, TrendingUp, Coins, Calendar, Clock, Lock, Unlock, Share2, Save, Trash2, Edit, Download, Wallet, TrendingDown, ArrowUpRight, Layers } from "lucide-react";
+import { UserProfile, PaymentRequest, WithdrawalRequest, AuditLog, Announcement, Challenge, ChallengeProgress, CoFounderPermissions, ChallengeLead, MembershipPlan, PlatformFees, WithdrawalSettings, PlatformRevenue, RevenueTransaction, Service, ServicePurchase, IndustryEarningRecord } from "../types";
+import { Users, CreditCard, ShieldCheck, Megaphone, Terminal, Search, UserPlus, Check, CheckCircle, X, FileSpreadsheet, PlusCircle, AlertCircle, RefreshCw, Send, DollarSign, ShieldAlert, Settings, Bell, Trophy, Award, Landmark, Hourglass, ClipboardCheck, Sparkles, AlertTriangle, TrendingUp, Coins, Calendar, Clock, Lock, Unlock, Share2, Save, Trash2, Edit, Download, Wallet, TrendingDown, ArrowUpRight, Layers, Briefcase, CheckCircle2, XCircle, ExternalLink } from "lucide-react";
 import AnimatedCounter from "./AnimatedCounter";
 import { jsPDF } from "jspdf";
 import MultiSelect from "./MultiSelect";
@@ -35,6 +35,9 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
   const [withdrawals, setWithdrawals] = useState<WithdrawalRequest[]>([]);
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
+  const [industryEarningsRequests, setIndustryEarningsRequests] = useState<IndustryEarningRecord[]>([]);
+  const [ieFilterStatus, setIeFilterStatus] = useState<"All" | "Pending" | "Approved" | "Rejected">("Pending");
+  const [ieAdminRemarks, setIeAdminRemarks] = useState<{ [id: string]: string }>({});
   
   // Loading and forms state
   const [loading, setLoading] = useState(true);
@@ -458,6 +461,16 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
       setChallengeProgresses(list);
     }, (err) => handleFirestoreError(err, OperationType.LIST, "challengeProgress"));
 
+    // 6b. Listen to Industry Earnings Requests
+    const unsubIndustryEarnings = onSnapshot(collection(db, "industryEarningsRequests"), (snapshot) => {
+      const list: IndustryEarningRecord[] = [];
+      snapshot.forEach((doc) => {
+        list.push({ id: doc.id, ...doc.data() } as IndustryEarningRecord);
+      });
+      list.sort((a, b) => new Date(b.submittedAt || 0).getTime() - new Date(a.submittedAt || 0).getTime());
+      setIndustryEarningsRequests(list);
+    }, (err) => handleFirestoreError(err, OperationType.LIST, "industryEarningsRequests"));
+
     // 7. Listen to Website Settings
     const unsubSettings = onSnapshot(doc(db, "settings", "website"), (snapshot) => {
       if (snapshot.exists()) {
@@ -660,6 +673,7 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
       unsubPrefs();
       unsubBadges();
       unsubBadgeHistory();
+      unsubIndustryEarnings();
     };
   }, []);
 
@@ -679,6 +693,134 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
       });
     } catch (e) {
       console.error("Audit Logging Error:", e);
+    }
+  };
+
+  // --- Industry Earnings Administration Handlers ---
+  const handleApproveIndustryEarning = async (req: IndustryEarningRecord) => {
+    setActionLoading(`ie_approve_${req.id}`);
+    try {
+      const remark = ieAdminRemarks[req.id] || "Verified and approved by admin";
+
+      // 1. Update request status
+      await updateDoc(doc(db, "industryEarningsRequests", req.id), {
+        status: "Approved",
+        adminRemark: remark,
+        reviewedAt: new Date().toISOString(),
+        reviewedBy: adminUser.username || "Admin",
+      });
+
+      // 2. Calculate sum of all approved requests for this user
+      const userApprovedSnap = await getDocs(
+        query(
+          collection(db, "industryEarningsRequests"),
+          where("userId", "==", req.userId)
+        )
+      );
+
+      let totalApprovedIE = 0;
+      userApprovedSnap.forEach((d) => {
+        const data = d.data();
+        if (d.id === req.id || data.status === "Approved") {
+          totalApprovedIE += Number(data.amount || 0);
+        }
+      });
+
+      // 3. Update user profile document in Firestore
+      await updateDoc(doc(db, "users", req.userId), {
+        industryEarnings: totalApprovedIE,
+      });
+
+      // 4. Send notification to user
+      await addDoc(collection(db, "notifications"), {
+        userId: req.userId,
+        title: "Industry Earnings Approved! 🎉",
+        body: `Your Industry Earnings submission of ₹${req.amount.toLocaleString("en-IN")} for platform "${req.platformName}" has been approved and added to your dashboard!`,
+        timestamp: serverTimestamp(),
+        isRead: false,
+        type: "system",
+      });
+
+      // 5. Audit Log
+      await writeAuditLog(
+        "Approve Industry Earnings",
+        req.username,
+        `Approved ₹${req.amount} for platform ${req.platformName}. Remark: ${remark}`
+      );
+
+      setIeAdminRemarks((prev) => {
+        const copy = { ...prev };
+        delete copy[req.id];
+        return copy;
+      });
+    } catch (err: any) {
+      console.error("Error approving Industry Earnings:", err);
+      alert("Failed to approve Industry Earnings: " + (err.message || err));
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleRejectIndustryEarning = async (req: IndustryEarningRecord) => {
+    setActionLoading(`ie_reject_${req.id}`);
+    try {
+      const remark = ieAdminRemarks[req.id] || "Verification failed or invalid proof";
+
+      // 1. Update request status
+      await updateDoc(doc(db, "industryEarningsRequests", req.id), {
+        status: "Rejected",
+        adminRemark: remark,
+        reviewedAt: new Date().toISOString(),
+        reviewedBy: adminUser.username || "Admin",
+      });
+
+      // 2. Recalculate approved total for user
+      const userApprovedSnap = await getDocs(
+        query(
+          collection(db, "industryEarningsRequests"),
+          where("userId", "==", req.userId)
+        )
+      );
+
+      let totalApprovedIE = 0;
+      userApprovedSnap.forEach((d) => {
+        const data = d.data();
+        if (d.id !== req.id && data.status === "Approved") {
+          totalApprovedIE += Number(data.amount || 0);
+        }
+      });
+
+      await updateDoc(doc(db, "users", req.userId), {
+        industryEarnings: totalApprovedIE,
+      });
+
+      // 3. Send notification to user
+      await addDoc(collection(db, "notifications"), {
+        userId: req.userId,
+        title: "Industry Earnings Request Update",
+        body: `Your Industry Earnings submission for platform "${req.platformName}" was rejected. Remark: ${remark}`,
+        timestamp: serverTimestamp(),
+        isRead: false,
+        type: "system",
+      });
+
+      // 4. Audit Log
+      await writeAuditLog(
+        "Reject Industry Earnings",
+        req.username,
+        `Rejected platform ${req.platformName} (₹${req.amount}). Remark: ${remark}`
+      );
+
+      setIeAdminRemarks((prev) => {
+        const copy = { ...prev };
+        delete copy[req.id];
+        return copy;
+      });
+    } catch (err: any) {
+      console.error("Error rejecting Industry Earnings:", err);
+      alert("Failed to reject Industry Earnings: " + (err.message || err));
+    } finally {
+      setActionLoading(null);
     }
   };
 
@@ -3319,7 +3461,7 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
       {activeTab === "analytics" && (
         <div className="space-y-6">
           {/* Bento Stats Grid */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
             <div className="bg-zinc-950/40 p-4 border border-zinc-800/80 rounded-xl space-y-2">
               <span className="text-[10px] uppercase tracking-widest font-mono text-zinc-500">Cumulative Registered Users</span>
               <p className="text-2xl font-display font-black text-zinc-100">{totalUsersCount} accounts</p>
@@ -3335,6 +3477,12 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
             <div className="bg-zinc-950/40 p-4 border border-zinc-800/80 rounded-xl space-y-2">
               <span className="text-[10px] uppercase tracking-widest font-mono text-zinc-500">Pending Withdrawals</span>
               <p className="text-2xl font-display font-black text-amber-500">{pendingWithdrawals.length} request(s)</p>
+            </div>
+            <div className="bg-zinc-950/40 p-4 border border-emerald-500/30 rounded-xl space-y-2 bg-emerald-950/10">
+              <span className="text-[10px] uppercase tracking-widest font-mono text-emerald-400">Pending Industry Earnings</span>
+              <p className="text-2xl font-display font-black text-emerald-400">
+                {industryEarningsRequests.filter(r => r.status === "Pending").length} claims
+              </p>
             </div>
           </div>
 
@@ -3430,6 +3578,190 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
                 </button>
               </div>
             </form>
+          </div>
+
+          {/* Industry Earnings Verification & Approvals Section */}
+          <div className="rounded-2xl bg-zinc-900/20 border border-zinc-800 p-6 shadow-lg space-y-6">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div>
+                <h3 className="text-base font-display font-semibold text-zinc-100 flex items-center space-x-2">
+                  <Briefcase className="w-5 h-5 text-emerald-400" />
+                  <span>Industry Earnings Verification & Approvals</span>
+                </h3>
+                <p className="text-xs text-zinc-400 font-sans mt-1">
+                  Review and approve user submissions for prior platform earnings (e.g. Zee, AffiliateHub). Approved earnings will display on user dashboards.
+                </p>
+              </div>
+
+              {/* Status Filter Tabs */}
+              <div className="flex items-center space-x-1.5 bg-slate-950 p-1 rounded-xl border border-zinc-800">
+                {(["Pending", "Approved", "Rejected", "All"] as const).map((st) => {
+                  const count = st === "All" 
+                    ? industryEarningsRequests.length 
+                    : industryEarningsRequests.filter(r => r.status === st).length;
+                  return (
+                    <button
+                      key={st}
+                      onClick={() => setIeFilterStatus(st)}
+                      className={`px-3 py-1.5 text-xs font-mono font-medium rounded-lg transition-all cursor-pointer ${
+                        ieFilterStatus === st
+                          ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30"
+                          : "text-zinc-400 hover:text-zinc-200"
+                      }`}
+                    >
+                      {st} ({count})
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Submissions Table / Cards */}
+            {(() => {
+              const filteredIE = industryEarningsRequests.filter(r => {
+                const matchesStatus = ieFilterStatus === "All" || r.status === ieFilterStatus;
+                const matchesSearch = !searchQuery || 
+                  r.username.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                  r.platformName.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                  (r.email && r.email.toLowerCase().includes(searchQuery.toLowerCase()));
+                return matchesStatus && matchesSearch;
+              });
+
+              if (filteredIE.length === 0) {
+                return (
+                  <div className="p-8 text-center bg-slate-950/40 rounded-xl border border-zinc-850 space-y-2">
+                    <Briefcase className="w-8 h-8 text-zinc-600 mx-auto" />
+                    <p className="text-xs text-zinc-400 font-mono">No Industry Earnings requests found matching current filter ({ieFilterStatus}).</p>
+                  </div>
+                );
+              }
+
+              return (
+                <div className="overflow-x-auto rounded-xl border border-zinc-850 bg-slate-950/40">
+                  <table className="w-full text-left border-collapse min-w-[700px]">
+                    <thead>
+                      <tr className="border-b border-zinc-800 bg-zinc-900/40 text-[10px] font-mono uppercase tracking-wider text-zinc-400">
+                        <th className="py-3 px-4">User</th>
+                        <th className="py-3 px-4">Platform Name</th>
+                        <th className="py-3 px-4">Work Period</th>
+                        <th className="py-3 px-4">Claimed Amount</th>
+                        <th className="py-3 px-4">Proof Link</th>
+                        <th className="py-3 px-4">Status</th>
+                        <th className="py-3 px-4 text-right">Actions / Remarks</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-zinc-850 text-xs">
+                      {filteredIE.map((req) => {
+                        const isPending = req.status === "Pending";
+                        const isApproving = actionLoading === `ie_approve_${req.id}`;
+                        const isRejecting = actionLoading === `ie_reject_${req.id}`;
+
+                        return (
+                          <tr key={req.id} className="hover:bg-zinc-900/20 transition-colors">
+                            <td className="py-3 px-4">
+                              <div className="font-semibold text-zinc-100">{req.username}</div>
+                              <div className="text-[10px] font-mono text-zinc-500">{req.email || req.phone || req.userId}</div>
+                            </td>
+
+                            <td className="py-3 px-4 font-medium text-emerald-300">
+                              {req.platformName}
+                            </td>
+
+                            <td className="py-3 px-4 font-mono text-[11px] text-zinc-400">
+                              {req.startDate} to {req.endDate}
+                            </td>
+
+                            <td className="py-3 px-4 font-mono font-bold text-emerald-400 text-sm">
+                              ₹{req.amount.toLocaleString("en-IN")}
+                            </td>
+
+                            <td className="py-3 px-4">
+                              {req.proofUrl ? (
+                                <a
+                                  href={req.proofUrl}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="text-blue-400 hover:underline text-[11px] font-mono inline-flex items-center space-x-1"
+                                >
+                                  <span>View Proof</span>
+                                  <ExternalLink className="w-3 h-3" />
+                                </a>
+                              ) : (
+                                <span className="text-zinc-600 font-mono text-[10px]">No Link</span>
+                              )}
+                            </td>
+
+                            <td className="py-3 px-4">
+                              <span
+                                className={`text-[10px] font-mono font-bold uppercase tracking-wider px-2.5 py-0.5 rounded-full border ${
+                                  req.status === "Approved"
+                                    ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/25"
+                                    : req.status === "Rejected"
+                                    ? "bg-red-500/10 text-red-400 border-red-500/25"
+                                    : "bg-amber-500/10 text-amber-400 border-amber-500/25"
+                                }`}
+                              >
+                                {req.status}
+                              </span>
+                            </td>
+
+                            <td className="py-3 px-4 text-right">
+                              {isPending ? (
+                                <div className="space-y-2 max-w-xs ml-auto">
+                                  <input
+                                    type="text"
+                                    placeholder="Admin remark (optional)..."
+                                    value={ieAdminRemarks[req.id] || ""}
+                                    onChange={(e) => setIeAdminRemarks({ ...ieAdminRemarks, [req.id]: e.target.value })}
+                                    className="w-full bg-slate-950 border border-zinc-800 rounded-lg py-1 px-2 text-[11px] text-zinc-200 focus:outline-hidden focus:border-amber-500/60"
+                                  />
+                                  <div className="flex items-center justify-end space-x-2">
+                                    <button
+                                      onClick={() => handleApproveIndustryEarning(req)}
+                                      disabled={isApproving || isRejecting}
+                                      className="bg-emerald-600 hover:bg-emerald-500 disabled:bg-zinc-800 text-white font-semibold text-[11px] px-3 py-1 rounded-lg flex items-center space-x-1 cursor-pointer transition-all active:scale-98"
+                                    >
+                                      {isApproving ? (
+                                        <RefreshCw className="w-3 h-3 animate-spin" />
+                                      ) : (
+                                        <>
+                                          <CheckCircle2 className="w-3 h-3" />
+                                          <span>Approve</span>
+                                        </>
+                                      )}
+                                    </button>
+
+                                    <button
+                                      onClick={() => handleRejectIndustryEarning(req)}
+                                      disabled={isApproving || isRejecting}
+                                      className="bg-red-600 hover:bg-red-500 disabled:bg-zinc-800 text-white font-semibold text-[11px] px-3 py-1 rounded-lg flex items-center space-x-1 cursor-pointer transition-all active:scale-98"
+                                    >
+                                      {isRejecting ? (
+                                        <RefreshCw className="w-3 h-3 animate-spin" />
+                                      ) : (
+                                        <>
+                                          <XCircle className="w-3 h-3" />
+                                          <span>Reject</span>
+                                        </>
+                                      )}
+                                    </button>
+                                  </div>
+                                </div>
+                              ) : (
+                                <div className="text-[10px] font-mono text-zinc-400">
+                                  <div>By: {req.reviewedBy || "Admin"}</div>
+                                  {req.adminRemark && <div className="text-amber-300 italic font-sans">{req.adminRemark}</div>}
+                                </div>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              );
+            })()}
           </div>
         </div>
       )}

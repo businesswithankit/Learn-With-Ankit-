@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from "react";
-import { User, Mail, Phone, MapPin, Calendar, Award, Shield, DollarSign, Wallet, CheckCircle, Edit, RefreshCw, Lock, Zap, Check, Coins, ShieldCheck, Key, Share2 } from "lucide-react";
+import { User, Mail, Phone, MapPin, Calendar, Award, Shield, DollarSign, Wallet, CheckCircle, Edit, RefreshCw, Lock, Zap, Check, Coins, ShieldCheck, Key, Share2, Briefcase, Building, Send, Clock, CheckCircle2, XCircle, ExternalLink } from "lucide-react";
 import { doc, updateDoc, collection, query, onSnapshot, runTransaction, serverTimestamp, addDoc, getDoc, getDocs, where, limit, orderBy } from "firebase/firestore";
 import { updatePassword, reauthenticateWithCredential, EmailAuthProvider } from "firebase/auth";
 import { db, auth, handleFirestoreError, OperationType } from "../firebase";
-import { UserProfile, MembershipPlan } from "../types";
+import { UserProfile, MembershipPlan, IndustryEarningRecord } from "../types";
 import { hashPin } from "../utils/pin";
 import SocialMediaIcons from "./SocialMediaIcons";
 import { logAuditAction } from "../utils/audit";
@@ -51,6 +51,114 @@ export default function ProfileSection({ user, onUpdateUser }: ProfileSectionPro
   const [purchaseSuccess, setPurchaseSuccess] = useState("");
   const [purchaseError, setPurchaseError] = useState("");
   const [badges, setBadges] = useState<any[]>([]);
+
+  // Industry Earnings states
+  const [iePlatformName, setIePlatformName] = useState("");
+  const [ieStartDate, setIeStartDate] = useState("");
+  const [ieEndDate, setIeEndDate] = useState("");
+  const [ieAmount, setIeAmount] = useState<number | "">("");
+  const [ieProofUrl, setIeProofUrl] = useState("");
+  const [ieLoading, setIeLoading] = useState(false);
+  const [ieSuccess, setIeSuccess] = useState("");
+  const [ieError, setIeError] = useState("");
+  const [industryRecords, setIndustryRecords] = useState<IndustryEarningRecord[]>([]);
+
+  // Realtime subscription for user's Industry Earnings requests
+  useEffect(() => {
+    if (!user?.userId) return;
+    const q = query(
+      collection(db, "industryEarningsRequests"),
+      where("userId", "==", user.userId)
+    );
+    const unsub = onSnapshot(
+      q,
+      (snapshot) => {
+        const list: IndustryEarningRecord[] = [];
+        snapshot.forEach((doc) => {
+          list.push({ id: doc.id, ...doc.data() } as IndustryEarningRecord);
+        });
+        list.sort((a, b) => new Date(b.submittedAt || 0).getTime() - new Date(a.submittedAt || 0).getTime());
+        setIndustryRecords(list);
+      },
+      (err) => {
+        console.warn("Error fetching user industry earnings requests:", err);
+      }
+    );
+    return () => unsub();
+  }, [user?.userId]);
+
+  const handleSubmitIndustryEarning = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIeError("");
+    setIeSuccess("");
+
+    if (!iePlatformName.trim()) {
+      setIeError("Please enter the platform name.");
+      return;
+    }
+    if (!ieStartDate || !ieEndDate) {
+      setIeError("Please select both start and end dates.");
+      return;
+    }
+    if (!ieAmount || Number(ieAmount) <= 0) {
+      setIeError("Please enter a valid earnings amount greater than ₹0.");
+      return;
+    }
+
+    setIeLoading(true);
+    try {
+      const numAmount = Number(ieAmount);
+      const payload = {
+        userId: user.userId,
+        customUserId: user.customUserId || user.userId,
+        username: user.username,
+        email: user.email || "",
+        phone: user.phone || "",
+        platformName: iePlatformName.trim(),
+        startDate: ieStartDate,
+        endDate: ieEndDate,
+        amount: numAmount,
+        proofUrl: ieProofUrl.trim() || "",
+        status: "Pending",
+        timestamp: serverTimestamp(),
+        submittedAt: new Date().toISOString(),
+      };
+
+      await addDoc(collection(db, "industryEarningsRequests"), payload);
+
+      // User notification
+      await addDoc(collection(db, "notifications"), {
+        userId: user.userId,
+        title: "Industry Earnings Request Submitted",
+        body: `Your request for ${iePlatformName.trim()} (₹${numAmount.toLocaleString('en-IN')}) has been submitted for admin approval.`,
+        timestamp: serverTimestamp(),
+        isRead: false,
+        type: "system",
+      });
+
+      // Admin notification
+      await addDoc(collection(db, "notifications"), {
+        userId: "all",
+        title: "New Industry Earnings Request",
+        body: `${user.username} submitted ₹${numAmount.toLocaleString('en-IN')} from platform "${iePlatformName.trim()}" for verification.`,
+        timestamp: serverTimestamp(),
+        isRead: false,
+        type: "system",
+      });
+
+      setIeSuccess("Industry Earnings request submitted successfully! Pending admin approval.");
+      setIePlatformName("");
+      setIeStartDate("");
+      setIeEndDate("");
+      setIeAmount("");
+      setIeProofUrl("");
+    } catch (err: any) {
+      console.error("Error submitting Industry Earnings:", err);
+      setIeError(err.message || "Failed to submit Industry Earnings.");
+    } finally {
+      setIeLoading(false);
+    }
+  };
 
   // Fetch Premium Membership plans
   useEffect(() => {
@@ -1088,6 +1196,185 @@ export default function ProfileSection({ user, onUpdateUser }: ProfileSectionPro
                     </button>
                   </div>
                 </form>
+              )}
+            </div>
+
+            {/* Industry Earnings Section */}
+            <div className="mt-8 border-t border-zinc-900 pt-6">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4">
+                <h3 className="text-sm font-display font-semibold text-zinc-100 flex items-center space-x-2">
+                  <Briefcase className="w-4 h-4 text-emerald-400" />
+                  <span>Industry Earnings Verification Claim</span>
+                </h3>
+                <span className="text-[10px] font-mono text-zinc-400 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 px-2.5 py-0.5 rounded-full uppercase tracking-wider w-fit">
+                  Profile & Dashboard Feature
+                </span>
+              </div>
+
+              <p className="text-xs text-zinc-400 font-sans leading-relaxed mb-4">
+                Did you previously work on another platform (e.g. Zee, AffiliateHub, etc.)? Submit your platform earnings details below for admin verification. Once verified by our team, your Industry Earnings will be prominently displayed on your user profile and main dashboard.
+              </p>
+
+              {ieSuccess && (
+                <div className="mb-4 p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/25 text-emerald-400 text-xs flex items-center space-x-2">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                  <span>{ieSuccess}</span>
+                </div>
+              )}
+
+              {ieError && (
+                <div className="mb-4 p-3 rounded-xl bg-red-500/10 border border-red-500/25 text-red-400 text-xs flex items-center space-x-2">
+                  <XCircle className="w-4 h-4 text-red-400 shrink-0" />
+                  <span>{ieError}</span>
+                </div>
+              )}
+
+              <form onSubmit={handleSubmitIndustryEarning} className="space-y-4 bg-slate-950/40 p-4 rounded-2xl border border-zinc-850">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-[10px] text-zinc-400 font-mono uppercase tracking-wider mb-1.5">
+                      Platform Name *
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="e.g. Zee Platform, AffiliateHub, etc."
+                      value={iePlatformName}
+                      onChange={(e) => setIePlatformName(e.target.value)}
+                      className="w-full bg-slate-950 border border-zinc-800 rounded-xl py-2 px-3 text-xs text-zinc-200 focus:outline-hidden focus:border-emerald-500/60"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] text-zinc-400 font-mono uppercase tracking-wider mb-1.5">
+                      Earnings Amount (₹) *
+                    </label>
+                    <input
+                      type="number"
+                      required
+                      min="1"
+                      placeholder="e.g. 25000"
+                      value={ieAmount}
+                      onChange={(e) => setIeAmount(e.target.value !== "" ? Number(e.target.value) : "")}
+                      className="w-full bg-slate-950 border border-zinc-800 rounded-xl py-2 px-3 text-xs text-zinc-200 focus:outline-hidden focus:border-emerald-500/60 font-mono"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] text-zinc-400 font-mono uppercase tracking-wider mb-1.5">
+                      Start Date *
+                    </label>
+                    <input
+                      type="date"
+                      required
+                      value={ieStartDate}
+                      onChange={(e) => setIeStartDate(e.target.value)}
+                      className="w-full bg-slate-950 border border-zinc-800 rounded-xl py-2 px-3 text-xs text-zinc-200 focus:outline-hidden focus:border-emerald-500/60"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] text-zinc-400 font-mono uppercase tracking-wider mb-1.5">
+                      End Date *
+                    </label>
+                    <input
+                      type="date"
+                      required
+                      value={ieEndDate}
+                      onChange={(e) => setIeEndDate(e.target.value)}
+                      className="w-full bg-slate-950 border border-zinc-800 rounded-xl py-2 px-3 text-xs text-zinc-200 focus:outline-hidden focus:border-emerald-500/60"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-[10px] text-zinc-400 font-mono uppercase tracking-wider mb-1.5">
+                    Proof Screenshot / Verification Link (Optional)
+                  </label>
+                  <input
+                    type="url"
+                    placeholder="https://drive.google.com/file/d/..."
+                    value={ieProofUrl}
+                    onChange={(e) => setIeProofUrl(e.target.value)}
+                    className="w-full bg-slate-950 border border-zinc-800 rounded-xl py-2 px-3 text-xs text-zinc-200 focus:outline-hidden focus:border-emerald-500/60 font-mono"
+                  />
+                </div>
+
+                <div className="pt-2 flex justify-end">
+                  <button
+                    type="submit"
+                    disabled={ieLoading}
+                    className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs py-2.5 px-6 rounded-xl font-display font-semibold flex items-center space-x-1.5 cursor-pointer shadow-lg transition-all active:scale-98"
+                  >
+                    {ieLoading ? (
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin mr-1" />
+                    ) : (
+                      <Send className="w-3.5 h-3.5 mr-1" />
+                    )}
+                    <span>Submit Request for Verification</span>
+                  </button>
+                </div>
+              </form>
+
+              {/* User Industry Earnings History List */}
+              {industryRecords.length > 0 && (
+                <div className="mt-6 space-y-3">
+                  <h4 className="text-xs font-mono uppercase tracking-widest text-zinc-400 flex items-center space-x-2">
+                    <Clock className="w-3.5 h-3.5 text-amber-400" />
+                    <span>Your Submitted Claims ({industryRecords.length})</span>
+                  </h4>
+
+                  <div className="space-y-2.5">
+                    {industryRecords.map((rec) => (
+                      <div
+                        key={rec.id}
+                        className="p-3.5 rounded-xl bg-zinc-950/60 border border-zinc-850 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3"
+                      >
+                        <div className="space-y-1">
+                          <div className="flex items-center space-x-2">
+                            <span className="text-sm font-bold text-zinc-100">{rec.platformName}</span>
+                            <span
+                              className={`text-[9px] font-mono font-bold uppercase tracking-wider px-2 py-0.5 rounded-full border ${
+                                rec.status === "Approved"
+                                  ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/25"
+                                  : rec.status === "Rejected"
+                                  ? "bg-red-500/10 text-red-400 border-red-500/25"
+                                  : "bg-amber-500/10 text-amber-400 border-amber-500/25"
+                              }`}
+                            >
+                              ● {rec.status}
+                            </span>
+                          </div>
+                          <p className="text-[10px] text-zinc-400 font-mono">
+                            Period: {rec.startDate} to {rec.endDate}
+                          </p>
+                          {rec.adminRemark && (
+                            <p className="text-[11px] text-amber-300 italic">
+                              Admin Remark: {rec.adminRemark}
+                            </p>
+                          )}
+                        </div>
+
+                        <div className="text-right flex sm:flex-col items-center sm:items-end justify-between w-full sm:w-auto pt-2 sm:pt-0 border-t sm:border-t-0 border-zinc-900">
+                          <span className="text-base font-black text-emerald-400 font-mono">
+                            ₹{rec.amount.toLocaleString("en-IN")}
+                          </span>
+                          {rec.proofUrl && (
+                            <a
+                              href={rec.proofUrl}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="text-[10px] text-blue-400 hover:underline flex items-center space-x-1"
+                            >
+                              <span>Proof Document</span>
+                              <ExternalLink className="w-3 h-3" />
+                            </a>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
               )}
             </div>
 
