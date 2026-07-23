@@ -321,51 +321,59 @@ export default function ServicesPage({ user, onUpdateUser }: ServicesPageProps) 
   };
 
   return (
-    <div className="space-y-8 max-w-5xl mx-auto animate-fade-in text-zinc-100 font-sans">
+    <div className="space-y-8 max-w-6xl mx-auto animate-fade-in text-zinc-100 font-sans">
       
       {/* Page Header */}
-      <div className="flex flex-col md:flex-row items-start md:items-center justify-between border-b border-zinc-900 pb-5 gap-4">
-        <div>
-          <h2 className="text-2xl font-display font-black text-zinc-100 uppercase tracking-tight flex items-center space-x-2.5">
-            <Sparkles className="w-6 h-6 text-amber-500 animate-pulse" />
-            <span>Services Marketplace</span>
-          </h2>
-          <p className="text-zinc-500 text-xs mt-1">
-            Unlock premium expert services, exclusive templates, and custom mentoring directly using your wallet balance.
-          </p>
-        </div>
-
-        {/* User Balance Display */}
-        <div className="flex items-center space-x-3 bg-zinc-950/80 border border-zinc-800 p-3 rounded-2xl">
-          <div className="p-2 bg-amber-500/10 rounded-xl">
-            <CreditCard className="w-5 h-5 text-amber-500" />
+      <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-zinc-950 via-zinc-900 to-amber-950/30 border border-amber-500/20 p-6 sm:p-8 shadow-2xl">
+        <div className="absolute top-0 right-0 -mt-8 -mr-8 w-64 h-64 bg-amber-500/10 rounded-full blur-3xl pointer-events-none" />
+        <div className="relative z-10 flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
+          <div className="space-y-2">
+            <div className="inline-flex items-center space-x-2 px-3 py-1 rounded-full bg-amber-500/10 border border-amber-500/20 text-amber-400 text-xs font-mono font-medium">
+              <Sparkles className="w-3.5 h-3.5 animate-pulse" />
+              <span>Official Premium Marketplace</span>
+            </div>
+            <h2 className="text-3xl sm:text-4xl font-display font-black text-zinc-100 tracking-tight">
+              Services & Schemes
+            </h2>
+            <p className="text-zinc-400 text-xs sm:text-sm max-w-xl leading-relaxed">
+              Unlock high-value expert services, exclusive course mentorship, and custom tools directly using your wallet balance.
+            </p>
           </div>
-          <div>
-            <span className="text-[9px] uppercase tracking-wider text-zinc-500 font-mono block">Your Wallet Balance</span>
-            <span className="text-sm font-bold text-zinc-200 font-mono">₹{user.walletBalance.toLocaleString("en-IN")}</span>
+
+          {/* User Balance Display Card */}
+          <div className="flex items-center space-x-4 bg-zinc-950/80 backdrop-blur-md border border-amber-500/30 p-4 rounded-2xl shadow-xl shrink-0">
+            <div className="w-12 h-12 rounded-xl bg-amber-500/20 border border-amber-500/30 flex items-center justify-center text-amber-400 shadow-inner">
+              <CreditCard className="w-6 h-6" />
+            </div>
+            <div>
+              <span className="text-[10px] uppercase tracking-wider text-zinc-400 font-mono block">Your Available Balance</span>
+              <span className="text-xl font-display font-black text-amber-400 font-mono">₹{user.walletBalance.toLocaleString("en-IN")}</span>
+            </div>
           </div>
         </div>
       </div>
 
       {/* Loading State */}
       {loading ? (
-        <div className="flex flex-col items-center justify-center py-20 space-y-4">
+        <div className="flex flex-col items-center justify-center py-24 space-y-4 rounded-3xl bg-zinc-950/40 border border-zinc-900">
           <RefreshCw className="w-8 h-8 text-amber-500 animate-spin" />
-          <p className="text-xs text-zinc-500 font-mono">Loading available services...</p>
+          <p className="text-xs text-zinc-400 font-mono">Loading available marketplace schemes...</p>
         </div>
       ) : (
         <>
           {/* Services Grid */}
-          <div>
-            <h3 className="text-xs uppercase tracking-widest font-mono text-zinc-500 mb-4 flex items-center space-x-2">
-              <ShoppingBag className="w-4 h-4 text-zinc-400" />
-              <span>Available Schemes & Services</span>
-            </h3>
+          <div className="space-y-5">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm uppercase tracking-widest font-mono text-zinc-400 flex items-center space-x-2 font-bold">
+                <ShoppingBag className="w-4 h-4 text-amber-400" />
+                <span>Available Marketplace Services ({services.length})</span>
+              </h3>
+            </div>
 
             {services.length === 0 ? (
-              <div className="text-center py-16 bg-zinc-950/20 border border-zinc-900 rounded-2xl">
-                <AlertCircle className="w-10 h-10 text-zinc-600 mx-auto mb-2" />
-                <p className="text-xs text-zinc-500">No active services are currently available. Check back later!</p>
+              <div className="text-center py-20 bg-zinc-950/40 border border-zinc-900/80 rounded-3xl space-y-3">
+                <AlertCircle className="w-12 h-12 text-zinc-600 mx-auto" />
+                <p className="text-sm text-zinc-400 font-sans">No active services are currently published. Check back soon!</p>
               </div>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -378,52 +386,55 @@ export default function ServicesPage({ user, onUpdateUser }: ServicesPageProps) 
                   return (
                     <div
                       key={service.id}
-                      className="bg-zinc-950/30 border border-zinc-900 rounded-2xl overflow-hidden hover:border-zinc-800/80 transition-all duration-300 flex flex-col justify-between group"
+                      className="bg-gradient-to-br from-zinc-950 via-zinc-950 to-zinc-900/80 border border-zinc-800/80 hover:border-amber-500/40 rounded-3xl overflow-hidden shadow-xl hover:shadow-2xl transition-all duration-300 flex flex-col justify-between group relative"
                     >
-                      {/* Thumbnail & Badges */}
-                      <div className="h-44 bg-zinc-900 relative overflow-hidden">
+                      {/* Top Accent line on hover */}
+                      <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-amber-500 via-rose-500 to-purple-500 opacity-0 group-hover:opacity-100 transition-opacity" />
+
+                      {/* Thumbnail & Floating Badges */}
+                      <div className="h-48 bg-zinc-900 relative overflow-hidden">
                         {service.thumbnail ? (
                           <img
                             src={service.thumbnail}
                             alt={service.name}
-                            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700"
                             referrerPolicy="no-referrer"
                           />
                         ) : (
-                          <div className="w-full h-full bg-gradient-to-br from-zinc-900 via-slate-950 to-black flex items-center justify-center">
-                            <Sparkles className="w-10 h-10 text-zinc-700 group-hover:text-amber-500/35 transition-colors" />
+                          <div className="w-full h-full bg-gradient-to-br from-zinc-900 via-zinc-950 to-slate-950 flex items-center justify-center">
+                            <Sparkles className="w-12 h-12 text-zinc-700 group-hover:text-amber-500/40 transition-colors" />
                           </div>
                         )}
-                        <div className="absolute top-3 left-3 bg-amber-500/10 text-amber-400 border border-amber-500/25 font-bold font-mono text-[10px] px-2.5 py-1 rounded-lg backdrop-blur-md uppercase tracking-wider">
+                        <div className="absolute top-3 left-3 bg-zinc-950/80 text-amber-400 border border-amber-500/30 font-bold font-mono text-[10px] px-3 py-1 rounded-full backdrop-blur-md uppercase tracking-wider shadow-lg">
                           {durationBadgeText}
                         </div>
-                        <div className="absolute top-3 right-3 bg-slate-950/90 text-amber-400 border border-zinc-800 font-black font-mono text-xs px-2.5 py-1 rounded-lg">
+                        <div className="absolute top-3 right-3 bg-amber-500 text-slate-950 font-display font-black text-xs px-3 py-1 rounded-full shadow-lg">
                           ₹{service.price.toLocaleString("en-IN")}
                         </div>
                       </div>
 
-                      {/* Content */}
-                      <div className="p-5 flex-1 flex flex-col justify-between space-y-4">
-                        <div className="space-y-3">
-                          <h4 className="font-bold text-sm text-zinc-100 group-hover:text-amber-400 transition-colors">
+                      {/* Card Body */}
+                      <div className="p-6 flex-1 flex flex-col justify-between space-y-5">
+                        <div className="space-y-3.5">
+                          <h4 className="font-display font-bold text-base text-zinc-100 group-hover:text-amber-400 transition-colors">
                             {service.name}
                           </h4>
 
                           {service.description && (
-                            <p className="text-[11px] text-zinc-400 leading-relaxed">
+                            <p className="text-xs text-zinc-400 leading-relaxed font-sans line-clamp-3">
                               {service.description}
                             </p>
                           )}
 
                           {/* Features list */}
                           {service.features && service.features.length > 0 && (
-                            <div className="space-y-1 pt-1 border-t border-zinc-900">
-                              <span className="text-[9px] uppercase font-mono tracking-wider text-zinc-500 font-bold block">
-                                Service Features
+                            <div className="space-y-2 pt-2 border-t border-zinc-900">
+                              <span className="text-[10px] uppercase font-mono tracking-wider text-zinc-500 font-bold block">
+                                Key Highlights
                               </span>
-                              <div className="flex flex-wrap gap-1">
+                              <div className="flex flex-wrap gap-1.5">
                                 {service.features.map((feat, fIdx) => (
-                                  <span key={fIdx} className="bg-zinc-900/80 border border-zinc-800/80 px-2 py-0.5 rounded-md text-[10px] text-zinc-300">
+                                  <span key={fIdx} className="bg-zinc-900/90 border border-zinc-800 px-2.5 py-0.5 rounded-lg text-[10px] text-zinc-300 font-medium">
                                     • {feat}
                                   </span>
                                 ))}
@@ -433,15 +444,15 @@ export default function ServicesPage({ user, onUpdateUser }: ServicesPageProps) 
 
                           {/* Benefits checklist */}
                           {service.benefits && service.benefits.length > 0 && (
-                            <div className="space-y-1.5 pt-1 border-t border-zinc-900">
-                              <span className="text-[9px] uppercase font-mono tracking-wider text-zinc-500 font-bold block">
-                                Included Benefits
+                            <div className="space-y-2 pt-2 border-t border-zinc-900">
+                              <span className="text-[10px] uppercase font-mono tracking-wider text-zinc-500 font-bold block">
+                                Member Advantages
                               </span>
-                              <ul className="space-y-1 text-[11px] text-zinc-300">
+                              <ul className="space-y-1.5 text-xs text-zinc-300">
                                 {service.benefits.map((benefit, bIdx) => (
-                                  <li key={bIdx} className="flex items-start space-x-1.5 text-zinc-300">
-                                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" />
-                                    <span className="leading-tight">{benefit}</span>
+                                  <li key={bIdx} className="flex items-start space-x-2 text-zinc-300">
+                                    <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+                                    <span className="leading-snug">{benefit}</span>
                                   </li>
                                 ))}
                               </ul>
@@ -451,14 +462,15 @@ export default function ServicesPage({ user, onUpdateUser }: ServicesPageProps) 
 
                         {/* Action button */}
                         {isPurchased ? (
-                          <div className="w-full py-2.5 bg-emerald-500/10 border border-emerald-500/25 text-emerald-400 font-bold text-[10px] rounded-xl flex items-center justify-center space-x-1.5 uppercase tracking-wider">
+                          <div className="w-full py-3 bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 font-bold text-xs rounded-2xl flex items-center justify-center space-x-2 uppercase tracking-wider shadow-inner">
                             <CheckCircle2 className="w-4 h-4" />
-                            <span>Purchased & Active</span>
+                            <span>Active Membership</span>
                           </div>
                         ) : (
                           <button
+                            type="button"
                             onClick={() => setSelectedService(service)}
-                            className="w-full py-2.5 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-[10px] rounded-xl uppercase tracking-wider cursor-pointer transition-all duration-300 flex items-center justify-center space-x-1.5 shadow-lg shadow-amber-500/10"
+                            className="w-full py-3 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-black text-xs rounded-2xl uppercase tracking-wider cursor-pointer transition-all duration-300 flex items-center justify-center space-x-2 shadow-lg shadow-amber-500/20 active:scale-98"
                           >
                             <CreditCard className="w-4 h-4" />
                             <span>{service.buttonText || "Buy Service"}</span>
@@ -473,18 +485,18 @@ export default function ServicesPage({ user, onUpdateUser }: ServicesPageProps) 
           </div>
 
           {/* User Service Purchase History / Active Subscriptions Section */}
-          <div className="border-t border-zinc-900 pt-8 space-y-4">
-            <h3 className="text-xs uppercase tracking-widest font-mono text-zinc-400 flex items-center space-x-2">
-              <Layers className="w-4 h-4 text-amber-500" />
-              <span>My Purchased Services & Subscriptions</span>
+          <div className="border-t border-zinc-900/80 pt-10 space-y-6">
+            <h3 className="text-sm uppercase tracking-widest font-mono text-zinc-300 flex items-center space-x-2 font-bold">
+              <Layers className="w-4 h-4 text-amber-400" />
+              <span>Your Active Schemes & Subscriptions ({purchases.length})</span>
             </h3>
 
             {purchases.length === 0 ? (
-              <div className="text-center py-10 bg-zinc-950/10 border border-zinc-900/60 rounded-2xl text-xs text-zinc-500">
-                You haven't purchased any services yet.
+              <div className="text-center py-12 bg-zinc-950/30 border border-zinc-900 rounded-3xl text-xs text-zinc-500">
+                You currently have no active service subscriptions.
               </div>
             ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 {purchases.map((purchase) => {
                   const now = Date.now();
                   let remainingStr = "Lifetime Access";
@@ -503,42 +515,42 @@ export default function ServicesPage({ user, onUpdateUser }: ServicesPageProps) 
                   }
 
                   return (
-                    <div key={purchase.id} className="bg-zinc-950/40 border border-zinc-800/80 rounded-2xl p-5 flex flex-col justify-between space-y-4 relative overflow-hidden">
-                      <div className="space-y-3">
+                    <div key={purchase.id} className="bg-gradient-to-br from-zinc-950 via-zinc-950 to-zinc-900 border border-zinc-800 rounded-3xl p-6 flex flex-col justify-between space-y-5 relative overflow-hidden shadow-xl hover:border-zinc-700 transition-all">
+                      <div className="space-y-4">
                         <div className="flex justify-between items-start">
                           <div>
-                            <h4 className="font-bold text-sm text-zinc-100">{purchase.serviceName}</h4>
-                            <div className="text-[10px] text-zinc-400 font-mono mt-0.5">
-                              Purchased on: <span className="text-zinc-200">{purchase.purchaseDate}</span>
+                            <h4 className="font-display font-bold text-base text-zinc-100">{purchase.serviceName}</h4>
+                            <div className="text-xs text-zinc-400 font-mono mt-1">
+                              Purchased: <span className="text-zinc-200">{purchase.purchaseDate}</span>
                             </div>
                           </div>
-                          <span className={`inline-flex px-2.5 py-1 rounded-lg text-[9px] font-mono font-bold uppercase ${
-                            isExpired ? "bg-red-500/15 text-red-400 border border-red-500/20" : "bg-emerald-500/15 text-emerald-400 border border-emerald-500/20"
+                          <span className={`inline-flex px-3 py-1 rounded-full text-[10px] font-mono font-bold uppercase ${
+                            isExpired ? "bg-red-500/15 text-red-400 border border-red-500/30" : "bg-emerald-500/15 text-emerald-400 border border-emerald-500/30"
                           }`}>
                             {isExpired ? "Expired" : "Active"}
                           </span>
                         </div>
 
                         {/* Duration & Expiry Banner */}
-                        <div className="p-2.5 bg-zinc-900/60 border border-zinc-850 rounded-xl flex items-center justify-between text-[10px] font-mono">
-                          <span className="text-zinc-400">Validity Expiry: <strong className="text-zinc-200">{purchase.expiryDate || "Lifetime"}</strong></span>
+                        <div className="p-3 bg-zinc-900/80 border border-zinc-800 rounded-2xl flex items-center justify-between text-xs font-mono">
+                          <span className="text-zinc-400">Expiry: <strong className="text-zinc-200">{purchase.expiryDate || "Lifetime"}</strong></span>
                           <span className={`font-bold ${isExpired ? "text-red-400" : "text-amber-400"}`}>{remainingStr}</span>
                         </div>
 
                         {/* Description */}
                         {purchase.description && (
-                          <p className="text-[11px] text-zinc-400 leading-relaxed line-clamp-2">
+                          <p className="text-xs text-zinc-400 leading-relaxed font-sans line-clamp-2">
                             {purchase.description}
                           </p>
                         )}
 
                         {/* Features */}
                         {purchase.features && purchase.features.length > 0 && (
-                          <div className="space-y-1">
-                            <span className="text-[9px] font-mono uppercase text-zinc-500 font-bold block">Features:</span>
-                            <div className="flex flex-wrap gap-1">
+                          <div className="space-y-1.5">
+                            <span className="text-[10px] font-mono uppercase text-zinc-500 font-bold block">Features Included:</span>
+                            <div className="flex flex-wrap gap-1.5">
                               {purchase.features.map((f, idx) => (
-                                <span key={idx} className="bg-zinc-900 border border-zinc-800/80 px-2 py-0.5 rounded text-[9px] text-zinc-300">
+                                <span key={idx} className="bg-zinc-900 border border-zinc-800 px-2.5 py-0.5 rounded-lg text-[10px] text-zinc-300">
                                   • {f}
                                 </span>
                               ))}
@@ -547,14 +559,15 @@ export default function ServicesPage({ user, onUpdateUser }: ServicesPageProps) 
                         )}
                       </div>
 
-                      <div className="pt-3 border-t border-zinc-900/80 flex justify-between items-center text-[10px] font-mono text-zinc-500">
-                        <span>Paid: <strong className="text-emerald-400">₹{purchase.price}</strong></span>
+                      <div className="pt-4 border-t border-zinc-900 flex justify-between items-center text-xs font-mono text-zinc-400">
+                        <span>Paid Amount: <strong className="text-emerald-400 font-bold text-sm">₹{purchase.price}</strong></span>
                         <button
+                          type="button"
                           onClick={() => setDeletingPurchase(purchase)}
-                          className="p-1.5 hover:bg-red-500/10 text-zinc-500 hover:text-red-400 rounded-lg transition-colors cursor-pointer"
+                          className="p-2 hover:bg-red-500/10 text-zinc-500 hover:text-red-400 rounded-xl transition-colors cursor-pointer"
                           title="Hide Record from Dashboard"
                         >
-                          <Trash2 className="w-3.5 h-3.5" />
+                          <Trash2 className="w-4 h-4" />
                         </button>
                       </div>
                     </div>
@@ -568,63 +581,63 @@ export default function ServicesPage({ user, onUpdateUser }: ServicesPageProps) 
 
       {/* CONFIRMATION PURCHASE MODAL */}
       {selectedService && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fade-in">
-          <div className="bg-zinc-950 border border-zinc-800 rounded-3xl p-6 max-w-sm w-full space-y-4 shadow-2xl relative overflow-hidden">
-            <div className="absolute top-0 left-0 w-full h-1 bg-amber-500" />
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-md flex items-center justify-center p-4 z-50 animate-fade-in">
+          <div className="bg-zinc-950 border border-amber-500/30 rounded-3xl p-6 sm:p-8 max-w-md w-full space-y-5 shadow-2xl relative overflow-hidden">
+            <div className="absolute top-0 left-0 w-full h-1.5 bg-gradient-to-r from-amber-500 via-rose-500 to-amber-500" />
             
-            <h4 className="text-base font-display font-black text-zinc-100 uppercase tracking-wide flex items-center space-x-2">
-              <ShoppingBag className="w-5 h-5 text-amber-500" />
-              <span>Confirm Purchase</span>
+            <h4 className="text-lg font-display font-black text-zinc-100 uppercase tracking-wide flex items-center space-x-2.5">
+              <ShoppingBag className="w-6 h-6 text-amber-500" />
+              <span>Confirm Purchase Order</span>
             </h4>
 
             {purchaseError ? (
-              <div className="p-3.5 bg-red-500/10 border border-red-500/25 rounded-2xl flex items-start space-x-2 text-[11px] text-red-400 font-sans">
-                <ShieldAlert className="w-4 h-4 shrink-0 mt-0.5" />
+              <div className="p-4 bg-red-500/10 border border-red-500/30 rounded-2xl flex items-start space-x-3 text-xs text-red-400 font-sans">
+                <ShieldAlert className="w-5 h-5 shrink-0 mt-0.5" />
                 <span>{purchaseError}</span>
               </div>
             ) : purchaseSuccess ? (
-              <div className="p-3.5 bg-emerald-500/10 border border-emerald-500/25 rounded-2xl flex items-start space-x-2 text-[11px] text-emerald-400 font-sans">
-                <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5" />
+              <div className="p-4 bg-emerald-500/10 border border-emerald-500/30 rounded-2xl flex items-start space-x-3 text-xs text-emerald-400 font-sans">
+                <CheckCircle2 className="w-5 h-5 shrink-0 mt-0.5" />
                 <span>{purchaseSuccess}</span>
               </div>
             ) : (
-              <div className="space-y-4 text-xs">
-                <p className="text-zinc-400 leading-relaxed">
-                  Are you sure you want to purchase <strong className="text-zinc-200">{selectedService.name}</strong>?
+              <div className="space-y-4 text-xs font-sans">
+                <p className="text-zinc-300 leading-relaxed text-sm">
+                  Are you sure you want to activate <strong className="text-amber-400 font-bold">{selectedService.name}</strong>?
                 </p>
 
-                <div className="bg-zinc-900/50 border border-zinc-850 p-3 rounded-2xl space-y-1.5 font-mono">
+                <div className="bg-zinc-900/80 border border-zinc-800 p-4 rounded-2xl space-y-2 font-mono text-xs">
                   <div className="flex justify-between">
-                    <span className="text-zinc-500">Service Price:</span>
-                    <span className="text-amber-400 font-semibold">₹{selectedService.price}</span>
+                    <span className="text-zinc-400">Service Cost:</span>
+                    <span className="text-amber-400 font-bold text-sm">₹{selectedService.price}</span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-zinc-500">Validity Period:</span>
+                    <span className="text-zinc-400">Validity Period:</span>
                     <span className="text-zinc-200 font-semibold">
                       {selectedService.durationType === "Fixed" && selectedService.durationValue
                         ? `${selectedService.durationValue} ${selectedService.durationUnit}`
                         : "Lifetime Access"}
                     </span>
                   </div>
-                  <div className="flex justify-between border-t border-zinc-800/80 pt-1.5 mt-1.5">
-                    <span className="text-zinc-500">Your Wallet Balance:</span>
-                    <span className="text-zinc-200 font-semibold">₹{user.walletBalance.toLocaleString("en-IN")}</span>
+                  <div className="flex justify-between border-t border-zinc-800 pt-2 mt-2">
+                    <span className="text-zinc-400">Current Balance:</span>
+                    <span className="text-zinc-200 font-bold">₹{user.walletBalance.toLocaleString("en-IN")}</span>
                   </div>
                 </div>
 
-                <div className="space-y-1.5 border-t border-zinc-900 pt-3 mt-3">
-                  <label className="block text-[10px] uppercase tracking-wider text-zinc-400 font-mono font-bold">Secure Wallet PIN</label>
+                <div className="space-y-2 border-t border-zinc-900 pt-3">
+                  <label className="block text-[10px] uppercase tracking-wider text-zinc-400 font-mono font-bold">Enter 4-Digit Wallet Security PIN</label>
                   <input
                     type="password"
                     maxLength={4}
                     placeholder="••••"
                     value={pin}
                     onChange={(e) => setPin(e.target.value.replace(/\D/g, ''))}
-                    className="w-full bg-slate-950 border border-zinc-850 rounded-xl py-2 px-3 text-center text-sm font-mono tracking-widest text-zinc-100 focus:outline-hidden focus:border-amber-500/50"
+                    className="w-full bg-slate-950 border border-zinc-800 rounded-xl py-2.5 px-4 text-center text-base font-mono tracking-widest text-zinc-100 focus:outline-hidden focus:border-amber-500/60"
                   />
                   {!user.walletPinHash && (
-                    <p className="text-[10px] text-amber-500/80 italic leading-snug">
-                      * You must set up your secure 4-digit Wallet PIN in the Profile tab first.
+                    <p className="text-[11px] text-amber-400/90 italic leading-snug">
+                      * Please set up your 4-digit Wallet PIN in the Profile section first.
                     </p>
                   )}
                 </div>
@@ -632,26 +645,28 @@ export default function ServicesPage({ user, onUpdateUser }: ServicesPageProps) 
             )}
 
             {!purchaseSuccess && (
-              <div className="flex space-x-2 pt-2 text-[10px] font-bold uppercase tracking-wider">
+              <div className="flex space-x-3 pt-2 text-xs font-bold uppercase tracking-wider">
                 <button
+                  type="button"
                   onClick={() => setSelectedService(null)}
                   disabled={purchaseLoading}
-                  className="flex-1 py-2.5 bg-zinc-900 hover:bg-zinc-850 text-zinc-400 rounded-xl border border-zinc-800 transition-colors cursor-pointer"
+                  className="flex-1 py-3 bg-zinc-900 hover:bg-zinc-800 text-zinc-300 rounded-2xl border border-zinc-800 transition-colors cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
+                  type="button"
                   onClick={handlePurchaseService}
                   disabled={purchaseLoading}
-                  className="flex-1 py-2.5 bg-amber-500 hover:bg-amber-600 disabled:bg-zinc-850 text-slate-950 rounded-xl transition-colors cursor-pointer flex items-center justify-center space-x-1"
+                  className="flex-1 py-3 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 rounded-2xl cursor-pointer transition-all flex items-center justify-center space-x-1 shadow-lg shadow-amber-500/20"
                 >
                   {purchaseLoading ? (
                     <>
-                      <RefreshCw className="w-3 h-3 animate-spin mr-1" />
-                      <span>Purchasing...</span>
+                      <RefreshCw className="w-4 h-4 animate-spin mr-1" />
+                      <span>Processing...</span>
                     </>
                   ) : (
-                    <span>Confirm Pay</span>
+                    <span>Confirm Order</span>
                   )}
                 </button>
               </div>
@@ -662,33 +677,35 @@ export default function ServicesPage({ user, onUpdateUser }: ServicesPageProps) 
 
       {/* HISTORY DELETION CONFIRMATION MODAL */}
       {deletingPurchase && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fade-in">
-          <div className="bg-zinc-950 border border-zinc-850 rounded-3xl p-6 max-w-sm w-full space-y-4 shadow-2xl relative overflow-hidden">
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-md flex items-center justify-center p-4 z-50 animate-fade-in">
+          <div className="bg-zinc-950 border border-zinc-800 rounded-3xl p-6 sm:p-8 max-w-sm w-full space-y-4 shadow-2xl relative overflow-hidden">
             <h4 className="text-base font-display font-black text-zinc-100 uppercase tracking-wide flex items-center space-x-2 text-red-400">
               <Trash2 className="w-5 h-5 text-red-500" />
-              <span>Delete History Record</span>
+              <span>Remove History Record</span>
             </h4>
 
-            <p className="text-zinc-400 text-xs leading-relaxed">
-              Are you sure you want to remove the purchase record of <strong className="text-zinc-200">{deletingPurchase.serviceName}</strong> from your visible history?
+            <p className="text-zinc-300 text-xs leading-relaxed font-sans">
+              Are you sure you want to remove <strong className="text-zinc-100">{deletingPurchase.serviceName}</strong> from your visible history?
             </p>
 
-            <div className="p-2.5 bg-amber-500/10 border border-amber-500/20 rounded-xl text-[10px] text-amber-400 leading-relaxed">
-              ⚠️ Deleting history record only removes it from this list. It does <strong>NOT</strong> cancel the purchased service.
+            <div className="p-3 bg-amber-500/10 border border-amber-500/20 rounded-xl text-[11px] text-amber-400 leading-relaxed font-sans">
+              ⚠️ Deleting history record only hides it from this list. It does <strong>NOT</strong> cancel the active service.
             </div>
 
-            <div className="flex space-x-2 pt-2 text-[10px] font-bold uppercase tracking-wider">
+            <div className="flex space-x-3 pt-2 text-xs font-bold uppercase tracking-wider">
               <button
+                type="button"
                 onClick={() => setDeletingPurchase(null)}
                 disabled={deleteLoading}
-                className="flex-1 py-2.5 bg-zinc-900 hover:bg-zinc-850 text-zinc-400 rounded-xl border border-zinc-800 cursor-pointer"
+                className="flex-1 py-3 bg-zinc-900 hover:bg-zinc-800 text-zinc-400 rounded-2xl border border-zinc-800 cursor-pointer"
               >
                 Cancel
               </button>
               <button
+                type="button"
                 onClick={handleDeleteHistory}
                 disabled={deleteLoading}
-                className="flex-1 py-2.5 bg-red-500 hover:bg-red-600 disabled:bg-zinc-850 text-white rounded-xl cursor-pointer"
+                className="flex-1 py-3 bg-red-600 hover:bg-red-500 disabled:bg-zinc-800 text-white rounded-2xl cursor-pointer shadow-lg"
               >
                 {deleteLoading ? "Deleting..." : "Delete"}
               </button>
