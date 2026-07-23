@@ -846,7 +846,7 @@ export default function App() {
                 {websiteSettings?.websiteName || "LEARN WITH ANKIT"}
               </h1>
               <p className="text-[8px] uppercase tracking-widest text-amber-500/80 font-mono font-bold">
-                FINTECH ELITE V1.0
+                FINTECH ELITE V5.0
               </p>
             </div>
           </div>
@@ -914,7 +914,7 @@ export default function App() {
                       {websiteSettings?.websiteName || "LEARN WITH ANKIT"}
                     </h2>
                     <p className="text-[9px] uppercase tracking-widest text-amber-400 font-mono font-bold">
-                      FINTECH ELITE V1.0
+                      FINTECH ELITE V5.0
                     </p>
                   </div>
                 </div>
