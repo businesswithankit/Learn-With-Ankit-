@@ -1179,24 +1179,24 @@ export default function App() {
                 </div>
               </div>
 
-              {/* 4 Revenue Stat Cards (2x2 Grid) */}
+              {/* 4 Revenue Stat Cards (2x2 Grid matching reference design) */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-5">
                 {/* Card 1: Today's Revenue */}
-                <div className="relative rounded-3xl bg-linear-to-br from-blue-950/60 via-zinc-950 to-zinc-900/90 border border-blue-500/30 p-6 shadow-xl space-y-4 group hover:border-blue-400/60 transition-all">
+                <div className="relative rounded-3xl bg-gradient-to-br from-blue-600 via-blue-600 to-blue-700 text-white p-6 shadow-2xl space-y-4 group hover:scale-[1.01] transition-all border border-blue-400/30">
                   <div className="flex items-start justify-between">
                     <div className="space-y-1">
-                      <div className="text-3xl sm:text-4xl font-display font-black text-zinc-100 flex items-center">
+                      <div className="text-3xl sm:text-4xl font-display font-black tracking-tight flex items-center">
                         ₹&nbsp;<AnimatedCounter value={activeUser.todayEarnings || 0} />
                       </div>
-                      <h3 className="text-sm sm:text-base font-display font-bold text-blue-300">
+                      <h3 className="text-sm sm:text-base font-display font-bold text-blue-100">
                         Today's Revenue
                       </h3>
                     </div>
-                    <div className="w-12 h-12 rounded-2xl bg-blue-500/20 border border-blue-500/40 flex items-center justify-center text-blue-400 shadow-inner shrink-0">
+                    <div className="w-12 h-12 rounded-full bg-blue-800/50 border border-white/20 flex items-center justify-center text-white shadow-inner shrink-0">
                       <CreditCard className="w-6 h-6" />
                     </div>
                   </div>
-                  <div className="pt-3 border-t border-blue-500/20">
+                  <div className="pt-3 border-t border-white/20">
                     <button
                       type="button"
                       onClick={() => setRevenueDetailModal({
@@ -1204,7 +1204,7 @@ export default function App() {
                         amount: activeUser.todayEarnings || 0,
                         period: "Today"
                       })}
-                      className="text-xs font-semibold text-blue-300 hover:text-blue-100 flex items-center space-x-1 group-hover:translate-x-1 transition-transform cursor-pointer"
+                      className="text-xs font-semibold text-blue-100 hover:text-white flex items-center space-x-1 group-hover:translate-x-1 transition-transform cursor-pointer"
                     >
                       <span>Click here to view detail(s)</span>
                       <ExternalLink className="w-3.5 h-3.5" />
@@ -1213,21 +1213,21 @@ export default function App() {
                 </div>
 
                 {/* Card 2: Last 7 Days Revenue */}
-                <div className="relative rounded-3xl bg-linear-to-br from-purple-950/60 via-zinc-950 to-zinc-900/90 border border-purple-500/30 p-6 shadow-xl space-y-4 group hover:border-purple-400/60 transition-all">
+                <div className="relative rounded-3xl bg-gradient-to-br from-indigo-600 via-indigo-600 to-purple-700 text-white p-6 shadow-2xl space-y-4 group hover:scale-[1.01] transition-all border border-indigo-400/30">
                   <div className="flex items-start justify-between">
                     <div className="space-y-1">
-                      <div className="text-3xl sm:text-4xl font-display font-black text-zinc-100 flex items-center">
+                      <div className="text-3xl sm:text-4xl font-display font-black tracking-tight flex items-center">
                         ₹&nbsp;<AnimatedCounter value={activeUser.last7DaysEarnings || 0} />
                       </div>
-                      <h3 className="text-sm sm:text-base font-display font-bold text-purple-300">
+                      <h3 className="text-sm sm:text-base font-display font-bold text-indigo-100">
                         Last 7 Days Revenue
                       </h3>
                     </div>
-                    <div className="w-12 h-12 rounded-2xl bg-purple-500/20 border border-purple-500/40 flex items-center justify-center text-purple-400 shadow-inner shrink-0">
+                    <div className="w-12 h-12 rounded-full bg-indigo-800/50 border border-white/20 flex items-center justify-center text-white shadow-inner shrink-0">
                       <BarChart2 className="w-6 h-6" />
                     </div>
                   </div>
-                  <div className="pt-3 border-t border-purple-500/20">
+                  <div className="pt-3 border-t border-white/20">
                     <button
                       type="button"
                       onClick={() => setRevenueDetailModal({
@@ -1235,7 +1235,7 @@ export default function App() {
                         amount: activeUser.last7DaysEarnings || 0,
                         period: "Last 7 Days"
                       })}
-                      className="text-xs font-semibold text-purple-300 hover:text-purple-100 flex items-center space-x-1 group-hover:translate-x-1 transition-transform cursor-pointer"
+                      className="text-xs font-semibold text-indigo-100 hover:text-white flex items-center space-x-1 group-hover:translate-x-1 transition-transform cursor-pointer"
                     >
                       <span>Click here to view detail(s)</span>
                       <ExternalLink className="w-3.5 h-3.5" />
@@ -1244,21 +1244,21 @@ export default function App() {
                 </div>
 
                 {/* Card 3: Last 30 Days Revenue */}
-                <div className="relative rounded-3xl bg-linear-to-br from-indigo-950/60 via-zinc-950 to-zinc-900/90 border border-indigo-500/30 p-6 shadow-xl space-y-4 group hover:border-indigo-400/60 transition-all">
+                <div className="relative rounded-3xl bg-gradient-to-br from-purple-600 via-purple-700 to-indigo-800 text-white p-6 shadow-2xl space-y-4 group hover:scale-[1.01] transition-all border border-purple-400/30">
                   <div className="flex items-start justify-between">
                     <div className="space-y-1">
-                      <div className="text-3xl sm:text-4xl font-display font-black text-zinc-100 flex items-center">
+                      <div className="text-3xl sm:text-4xl font-display font-black tracking-tight flex items-center">
                         ₹&nbsp;<AnimatedCounter value={activeUser.last30DaysEarnings || 0} />
                       </div>
-                      <h3 className="text-sm sm:text-base font-display font-bold text-indigo-300">
+                      <h3 className="text-sm sm:text-base font-display font-bold text-purple-100">
                         Last 30 Days Revenue
                       </h3>
                     </div>
-                    <div className="w-12 h-12 rounded-2xl bg-indigo-500/20 border border-indigo-500/40 flex items-center justify-center text-indigo-400 shadow-inner shrink-0">
+                    <div className="w-12 h-12 rounded-full bg-purple-800/50 border border-white/20 flex items-center justify-center text-white shadow-inner shrink-0">
                       <GraduationCap className="w-6 h-6" />
                     </div>
                   </div>
-                  <div className="pt-3 border-t border-indigo-500/20">
+                  <div className="pt-3 border-t border-white/20">
                     <button
                       type="button"
                       onClick={() => setRevenueDetailModal({
@@ -1266,7 +1266,7 @@ export default function App() {
                         amount: activeUser.last30DaysEarnings || 0,
                         period: "Last 30 Days"
                       })}
-                      className="text-xs font-semibold text-indigo-300 hover:text-indigo-100 flex items-center space-x-1 group-hover:translate-x-1 transition-transform cursor-pointer"
+                      className="text-xs font-semibold text-purple-100 hover:text-white flex items-center space-x-1 group-hover:translate-x-1 transition-transform cursor-pointer"
                     >
                       <span>Click here to view detail(s)</span>
                       <ExternalLink className="w-3.5 h-3.5" />
@@ -1275,21 +1275,21 @@ export default function App() {
                 </div>
 
                 {/* Card 4: All Time Revenue */}
-                <div className="relative rounded-3xl bg-linear-to-br from-rose-950/60 via-zinc-950 to-zinc-900/90 border border-rose-500/30 p-6 shadow-xl space-y-4 group hover:border-rose-400/60 transition-all">
+                <div className="relative rounded-3xl bg-gradient-to-br from-pink-600 via-rose-600 to-purple-700 text-white p-6 shadow-2xl space-y-4 group hover:scale-[1.01] transition-all border border-pink-400/30">
                   <div className="flex items-start justify-between">
                     <div className="space-y-1">
-                      <div className="text-3xl sm:text-4xl font-display font-black text-zinc-100 flex items-center">
+                      <div className="text-3xl sm:text-4xl font-display font-black tracking-tight flex items-center">
                         ₹&nbsp;<AnimatedCounter value={activeUser.totalEarnings || 0} />
                       </div>
-                      <h3 className="text-sm sm:text-base font-display font-bold text-rose-300">
+                      <h3 className="text-sm sm:text-base font-display font-bold text-rose-100">
                         All Time Revenue
                       </h3>
                     </div>
-                    <div className="w-12 h-12 rounded-2xl bg-rose-500/20 border border-rose-500/40 flex items-center justify-center text-rose-400 shadow-inner shrink-0">
+                    <div className="w-12 h-12 rounded-full bg-rose-800/50 border border-white/20 flex items-center justify-center text-white shadow-inner shrink-0">
                       <Trophy className="w-6 h-6" />
                     </div>
                   </div>
-                  <div className="pt-3 border-t border-rose-500/20">
+                  <div className="pt-3 border-t border-white/20">
                     <button
                       type="button"
                       onClick={() => setRevenueDetailModal({
@@ -1297,7 +1297,7 @@ export default function App() {
                         amount: activeUser.totalEarnings || 0,
                         period: "All Time"
                       })}
-                      className="text-xs font-semibold text-rose-300 hover:text-rose-100 flex items-center space-x-1 group-hover:translate-x-1 transition-transform cursor-pointer"
+                      className="text-xs font-semibold text-rose-100 hover:text-white flex items-center space-x-1 group-hover:translate-x-1 transition-transform cursor-pointer"
                     >
                       <span>Click here to view detail(s)</span>
                       <ExternalLink className="w-3.5 h-3.5" />
