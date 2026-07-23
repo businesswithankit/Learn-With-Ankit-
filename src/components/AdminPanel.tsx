@@ -865,15 +865,24 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
     if (!editingUser) return;
 
     // Founder Role Protection Checks
-    if (editingUser.role === "founder") {
-      if (editRole !== "founder") {
-        alert("The Founder role is permanent and cannot be demoted or changed.");
+    if (editingUser.role !== editRole) {
+      if (adminUser.role !== "founder") {
+        alert("Only the Platform Founder has permission to change user access roles (Founder, Admin, Co-Founder, User).");
         return;
       }
-      if (editUsername.trim() !== editingUser.username) {
-        alert("The Founder cannot be renamed.");
-        return;
+
+      if (editRole === "founder") {
+        const existingFounder = users.find((u) => u.role === "founder" && u.userId !== editingUser.userId);
+        if (existingFounder) {
+          alert(`There can be ONLY ONE Founder in the system. User "${existingFounder.username || existingFounder.email}" is currently the Founder. Demote them first before assigning the Founder role to another user.`);
+          return;
+        }
       }
+    }
+
+    if (adminUser.role !== "founder" && editingUser.role === "founder") {
+      alert("Only the Founder has lift control to modify the Founder profile.");
+      return;
     }
 
     // Co-founder & Admin Role Restrictions
@@ -886,11 +895,6 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
         alert("As a Co-Founder, you cannot promote a user to Founder, Admin, or Co-Founder roles.");
         return;
       }
-    }
-
-    if (adminUser.role === "admin" && editingUser.role === "founder") {
-      alert("Admins cannot modify the Founder profile.");
-      return;
     }
 
     setActionLoading(`save_${editingUser.userId}`);
@@ -7122,6 +7126,7 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
                   📁 Social Media Links List ({socialLinks.length} Platform Link(s))
                 </h4>
                 <div className="flex items-center space-x-2">
+                  <span className="text-[10px] text-zinc-500 font-mono hidden sm:inline">Manage each link individually below:</span>
                   <button
                     type="button"
                     onClick={handleLoadDefaultSocialLinks}
@@ -7129,15 +7134,6 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
                   >
                     Restore Standard Default Links
                   </button>
-                  {socialLinks.length > 0 && (
-                    <button
-                      type="button"
-                      onClick={handleDeleteAllSocialLinks}
-                      className="px-3 py-1 bg-red-500/10 hover:bg-red-500/20 text-red-400 text-[10px] font-bold rounded-lg border border-red-500/20 transition-all cursor-pointer"
-                    >
-                      Delete All Links
-                    </button>
-                  )}
                 </div>
               </div>
 
@@ -7841,17 +7837,32 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
                   />
                 </div>
                 <div>
-                  <label className="block text-[10px] text-zinc-400 font-mono uppercase tracking-wider mb-1">Account Role</label>
+                  <label className="block text-[10px] text-zinc-400 font-mono uppercase tracking-wider mb-1 flex items-center justify-between">
+                    <span>Account Role</span>
+                    {adminUser.role !== "founder" && (
+                      <span className="text-[9px] text-amber-400 font-mono font-bold bg-amber-500/10 px-1.5 py-0.5 rounded border border-amber-500/20">🔒 Founder Permission Only</span>
+                    )}
+                  </label>
                   <select
                     value={editRole}
                     onChange={(e: any) => setEditRole(e.target.value)}
-                    className="w-full bg-slate-950 border border-zinc-850 rounded-xl py-2 px-3 text-zinc-200 focus:outline-hidden focus:border-amber-500/50"
+                    disabled={adminUser.role !== "founder"}
+                    className={`w-full border rounded-xl py-2 px-3 text-zinc-200 focus:outline-hidden ${
+                      adminUser.role !== "founder"
+                        ? "bg-zinc-900/60 border-zinc-800 opacity-60 cursor-not-allowed"
+                        : "bg-slate-950 border-zinc-850 focus:border-amber-500/50 cursor-pointer"
+                    }`}
                   >
                     <option value="user">User</option>
                     <option value="co-founder">Co-Founder</option>
-                    <option value="admin">Admin</option>
-                    <option value="founder">Founder</option>
+                    <option value="admin">Admin (Full Control)</option>
+                    <option value="founder">Founder (Single Owner)</option>
                   </select>
+                  {adminUser.role !== "founder" && (
+                    <p className="text-[9px] text-zinc-500 font-mono mt-1">
+                      Only the Founder can grant, promote, or demote account roles.
+                    </p>
+                  )}
                 </div>
               </div>
 
