@@ -312,20 +312,7 @@ export default function ProfileSection({ user, onUpdateUser }: ProfileSectionPro
 
       const userRef = doc(db, "users", user.userId);
       const revenueRef = doc(db, "settings", "revenue");
-      const txRef = doc(collection(db, "revenueTransactions"));
       const notifRef = doc(collection(db, "notifications"));
-
-      // 1. Pre-query the founder user reference (Transactions don't allow queries inside)
-      let founderRef = null;
-      try {
-        const founderQuery = query(collection(db, "users"), where("role", "==", "founder"), limit(1));
-        const founderSnap = await getDocs(founderQuery);
-        if (!founderSnap.empty) {
-          founderRef = founderSnap.docs[0].ref;
-        }
-      } catch (err) {
-        console.warn("Founder query failed: ", err);
-      }
 
       await runTransaction(db, async (transaction) => {
         // --- READ ALL REQUIRED DOCUMENTS FIRST ---
@@ -353,19 +340,7 @@ export default function ProfileSection({ user, onUpdateUser }: ProfileSectionPro
           throw new Error(`Insufficient wallet balance. You need ₹${selectedPlan.price.toLocaleString("en-IN")} but have ₹${currentBalance.toLocaleString("en-IN")}.`);
         }
 
-        // Read Founder document within transaction if available
-        let founderSnapTx = null;
-        if (founderRef) {
-          founderSnapTx = await transaction.get(founderRef);
-        }
-
         const revSnap = await transaction.get(revenueRef);
-
-        const founderWalletRef = doc(db, "settings", "founderRevenueWallet");
-        const founderWalletSnap = await transaction.get(founderWalletRef);
-
-        // --- VALIDATE ALL CONDITIONS ---
-        // (All conditions validated above)
 
         // --- EXECUTE ALL WRITES AFTER ALL READS ---
         const now = new Date();
@@ -386,26 +361,6 @@ export default function ProfileSection({ user, onUpdateUser }: ProfileSectionPro
           premiumPlanId: selectedPlan.id,
           premiumBadgeStyle: selectedPlan.badgeStyle || "👑 VIP MEMBER",
           vipTagText: selectedPlan.badgeStyle || "👑 VIP MEMBER",
-        });
-
-        // Credit the Founder's Wallet automatically
-        if (founderRef && founderSnapTx && founderSnapTx.exists()) {
-          const founderData = founderSnapTx.data();
-          const currentFounderBalance = founderData.walletBalance || 0;
-          transaction.update(founderRef, {
-            walletBalance: currentFounderBalance + selectedPlan.price
-          });
-        }
-
-        // Credit the dedicated Founder Revenue Wallet
-        let founderWalletData = { currentBalance: 0, totalLifetimeRevenue: 0 };
-        if (founderWalletSnap.exists()) {
-          founderWalletData = founderWalletSnap.data() as any;
-        }
-        transaction.set(founderWalletRef, {
-          currentBalance: (founderWalletData.currentBalance || 0) + selectedPlan.price,
-          totalLifetimeRevenue: (founderWalletData.totalLifetimeRevenue || 0) + selectedPlan.price,
-          updatedAt: serverTimestamp()
         });
 
         const todayStr = new Date().toLocaleDateString("en-CA");
@@ -619,7 +574,7 @@ export default function ProfileSection({ user, onUpdateUser }: ProfileSectionPro
             <div className="lg:col-span-2 space-y-3.5">
               <span className="text-[10px] font-mono text-zinc-500 uppercase tracking-wider block">1. Select a Premium Club Membership Plan</span>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                {plans.map((plan) => {
+                {[...plans].sort((a, b) => (a.position ?? 9999) - (b.position ?? 9999)).map((plan) => {
                   const isSelected = selectedPlan?.id === plan.id;
                   const isCurrent = user.premiumPlanId === plan.id;
                   return (

@@ -27,10 +27,92 @@ import { logAuditAction } from "./utils/audit";
 // Icons
 import { 
   Trophy, Wallet, CreditCard, Landmark, History, Award, Shield, User, 
-  LogOut, ShieldAlert, Key, AlertCircle, RefreshCw, Layers, Sparkles, HelpCircle, X, Menu, Settings
+  LogOut, ShieldAlert, Key, AlertCircle, RefreshCw, Layers, Sparkles, HelpCircle, X, Menu, Settings,
+  Cpu, Activity, Terminal, Wifi, Lock, ShieldCheck, Database, CheckCircle2
 } from "lucide-react";
 
 type ActivePage = string;
+
+function LoginDataLoader({ message = "Synchronizing System Data..." }: { message?: string }) {
+  const [progress, setProgress] = useState(15);
+  const [stageIndex, setStageIndex] = useState(0);
+
+  const stages = [
+    "Establishing Encrypted TLS Handshake...",
+    "Querying Vault Ledger & Security Rules...",
+    "Validating System Configuration & Metadata...",
+    "Finalizing Access Credentials & Session State..."
+  ];
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setProgress((prev) => {
+        if (prev >= 94) return prev;
+        return prev + Math.floor(Math.random() * 12) + 4;
+      });
+    }, 250);
+
+    const stageTimer = setInterval(() => {
+      setStageIndex((prev) => (prev + 1) % stages.length);
+    }, 750);
+
+    return () => {
+      clearInterval(timer);
+      clearInterval(stageTimer);
+    };
+  }, []);
+
+  return (
+    <div className="py-5 space-y-4 text-center font-sans">
+      {/* Animated Glowing Orbital Ring */}
+      <div className="relative w-18 h-18 mx-auto flex items-center justify-center">
+        <div className="absolute inset-0 rounded-full border-2 border-amber-500/20 animate-ping opacity-65" />
+        <div className="absolute inset-0 rounded-full border-t-2 border-r-2 border-amber-400 animate-spin" />
+        <div className="w-12 h-12 rounded-full bg-slate-950 border border-amber-500/40 flex items-center justify-center shadow-[0_0_25px_rgba(245,158,11,0.25)]">
+          <Cpu className="w-6 h-6 text-amber-400 animate-pulse" />
+        </div>
+      </div>
+
+      {/* Loading Message & Active Stage */}
+      <div className="space-y-1">
+        <h4 className="text-xs font-mono font-bold text-amber-400 uppercase tracking-widest flex items-center justify-center space-x-1.5">
+          <Activity className="w-3.5 h-3.5 animate-pulse text-amber-400" />
+          <span>{message}</span>
+        </h4>
+        <p className="text-[10px] text-zinc-400 font-mono h-5 flex items-center justify-center space-x-1">
+          <Terminal className="w-3 h-3 text-zinc-500 shrink-0" />
+          <span className="truncate max-w-[280px]">{stages[stageIndex]}</span>
+        </p>
+      </div>
+
+      {/* Progress Bar & Percentage */}
+      <div className="space-y-1.5 max-w-xs mx-auto">
+        <div className="flex justify-between text-[10px] font-mono text-zinc-500">
+          <span>DATA_SYNC</span>
+          <span className="text-amber-400 font-bold">{progress}%</span>
+        </div>
+        <div className="w-full h-1.5 bg-slate-900 border border-zinc-800 rounded-full overflow-hidden p-0.5">
+          <div
+            className="h-full bg-gradient-to-r from-amber-500 via-yellow-400 to-amber-300 rounded-full transition-all duration-300 shadow-[0_0_12px_rgba(245,158,11,0.6)]"
+            style={{ width: `${progress}%` }}
+          />
+        </div>
+      </div>
+
+      {/* Status Badges */}
+      <div className="flex justify-center items-center gap-2 pt-1">
+        <span className="px-2.5 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-[9px] font-mono text-emerald-400 flex items-center space-x-1">
+          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping" />
+          <span>VAULT_CONNECTED</span>
+        </span>
+        <span className="px-2.5 py-0.5 rounded-full bg-amber-500/10 border border-amber-500/20 text-[9px] font-mono text-amber-400 flex items-center space-x-1">
+          <Wifi className="w-2.5 h-2.5" />
+          <span>TLS 1.3 SECURE</span>
+        </span>
+      </div>
+    </div>
+  );
+}
 
 export default function App() {
   const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);
@@ -610,75 +692,93 @@ export default function App() {
             <p className="text-xs text-zinc-500 font-medium">Earnings Tracking & Management Console</p>
           </div>
 
-          <form onSubmit={handleLogin} className="space-y-4 pt-2">
-            {maintenanceMode && (
-              <div className="p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/25 text-amber-400 text-xs flex items-start space-x-2.5">
-                <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-                <span className="leading-relaxed font-semibold">Maintenance Mode Activated. Only authorized accounts (Founder/Admin) can log in now.</span>
-              </div>
-            )}
+          {/* Live Data Connection Badge */}
+          <div className="flex items-center justify-center space-x-2 py-1.5 px-3 bg-slate-900/80 border border-zinc-800/80 rounded-full text-[10px] font-mono text-zinc-400">
+            <span className="relative flex h-2 w-2">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+            </span>
+            <span className="text-zinc-300 font-semibold">Vault Node Active</span>
+            <span className="text-zinc-700">•</span>
+            <span className="text-amber-400/90 font-mono">Real-Time Data Sync</span>
+          </div>
 
-            {loginError && (
-              <div className="p-3.5 rounded-xl bg-red-500/10 border border-red-500/25 text-red-400 text-xs flex items-start space-x-2.5">
-                <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-                <span className="leading-relaxed">{loginError}</span>
-              </div>
-            )}
+          {/* Data Loading States */}
+          {authLoading ? (
+            <LoginDataLoader message="Loading Vault & System Configurations..." />
+          ) : loginLoading ? (
+            <LoginDataLoader message="Authenticating & Syncing Session..." />
+          ) : (
+            <form onSubmit={handleLogin} className="space-y-4 pt-1">
+              {maintenanceMode && (
+                <div className="p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/25 text-amber-400 text-xs flex items-start space-x-2.5">
+                  <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                  <span className="leading-relaxed font-semibold">Maintenance Mode Activated. Only authorized accounts (Founder/Admin) can log in now.</span>
+                </div>
+              )}
 
-            <div>
-              <label htmlFor="loginEmail" className="block text-[10px] text-zinc-400 font-mono uppercase tracking-widest mb-1.5 font-semibold">
-                Authorization Email
-              </label>
-              <div className="relative">
-                <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-zinc-600">
-                  <User className="w-4.5 h-4.5" />
-                </span>
-                <input
-                  id="loginEmail"
-                  type="email"
-                  required
-                  placeholder="admin@learnwithankit.com"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  className="w-full bg-slate-950/60 border border-zinc-800 rounded-xl py-3 pl-10 pr-4 text-sm text-zinc-200 placeholder-zinc-600 focus:outline-hidden focus:border-amber-500/60 transition-colors font-sans"
-                />
-              </div>
-            </div>
+              {loginError && (
+                <div className="p-3.5 rounded-xl bg-red-500/10 border border-red-500/25 text-red-400 text-xs flex items-start space-x-2.5">
+                  <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                  <span className="leading-relaxed">{loginError}</span>
+                </div>
+              )}
 
-            <div>
-              <label htmlFor="loginPass" className="block text-[10px] text-zinc-400 font-mono uppercase tracking-widest mb-1.5 font-semibold">
-                Access Token Password
-              </label>
-              <div className="relative">
-                <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-zinc-600">
-                  <Key className="w-4.5 h-4.5" />
-                </span>
-                <input
-                  id="loginPass"
-                  type="password"
-                  required
-                  placeholder="••••••••"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  className="w-full bg-slate-950/60 border border-zinc-800 rounded-xl py-3 pl-10 pr-4 text-sm text-zinc-200 placeholder-zinc-600 focus:outline-hidden focus:border-amber-500/60 transition-colors font-mono"
-                />
+              <div>
+                <label htmlFor="loginEmail" className="block text-[10px] text-zinc-400 font-mono uppercase tracking-widest mb-1.5 font-semibold">
+                  Authorization Email
+                </label>
+                <div className="relative">
+                  <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-zinc-600">
+                    <User className="w-4.5 h-4.5" />
+                  </span>
+                  <input
+                    id="loginEmail"
+                    type="email"
+                    required
+                    placeholder="admin@learnwithankit.com"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    className="w-full bg-slate-950/60 border border-zinc-800 rounded-xl py-3 pl-10 pr-4 text-sm text-zinc-200 placeholder-zinc-600 focus:outline-hidden focus:border-amber-500/60 transition-colors font-sans"
+                  />
+                </div>
               </div>
-            </div>
 
-            <div className="pt-3">
-              <button
-                type="submit"
-                disabled={loginLoading}
-                className="w-full bg-gradient-to-r from-amber-500 via-amber-400 to-yellow-500 hover:from-amber-600 hover:to-yellow-600 disabled:from-zinc-800 disabled:to-zinc-900 disabled:text-zinc-600 font-display font-extrabold text-slate-950 text-sm py-3.5 px-4 rounded-xl shadow-lg transition-all duration-300 transform active:scale-98 flex items-center justify-center space-x-2 cursor-pointer gold-glow"
-              >
-                {loginLoading ? (
-                  <RefreshCw className="w-4 h-4 animate-spin" />
-                ) : (
-                  <span>AUTHORIZE ACCESS</span>
-                )}
-              </button>
-            </div>
-          </form>
+              <div>
+                <label htmlFor="loginPass" className="block text-[10px] text-zinc-400 font-mono uppercase tracking-widest mb-1.5 font-semibold">
+                  Access Token Password
+                </label>
+                <div className="relative">
+                  <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-zinc-600">
+                    <Key className="w-4.5 h-4.5" />
+                  </span>
+                  <input
+                    id="loginPass"
+                    type="password"
+                    required
+                    placeholder="••••••••"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    className="w-full bg-slate-950/60 border border-zinc-800 rounded-xl py-3 pl-10 pr-4 text-sm text-zinc-200 placeholder-zinc-600 focus:outline-hidden focus:border-amber-500/60 transition-colors font-mono"
+                  />
+                </div>
+              </div>
+
+              <div className="pt-3">
+                <button
+                  type="submit"
+                  disabled={loginLoading}
+                  className="w-full bg-gradient-to-r from-amber-500 via-amber-400 to-yellow-500 hover:from-amber-600 hover:to-yellow-600 disabled:from-zinc-800 disabled:to-zinc-900 disabled:text-zinc-600 font-display font-extrabold text-slate-950 text-sm py-3.5 px-4 rounded-xl shadow-lg transition-all duration-300 transform active:scale-98 flex items-center justify-center space-x-2 cursor-pointer gold-glow"
+                >
+                  {loginLoading ? (
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <span>AUTHORIZE ACCESS</span>
+                  )}
+                </button>
+              </div>
+            </form>
+          )}
 
           <div className="border-t border-zinc-900 pt-4 text-center space-y-3">
             <p className="text-[10px] text-zinc-500 font-mono flex items-center justify-center space-x-1">

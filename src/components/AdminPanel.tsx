@@ -133,7 +133,26 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
       setPinEnabled(socialSettings.pinterestEnabled ?? true);
       setPinUrl(socialSettings.pinterestUrl ?? "");
       setSocOrder(socialSettings.order ?? ["instagram", "youtube", "facebook", "pinterest"]);
-      setSocialLinks(socialSettings.links || []);
+      
+      if (socialSettings.links && Array.isArray(socialSettings.links)) {
+        setSocialLinks(socialSettings.links);
+      } else {
+        const defaults = [
+          { id: "default_yt", platformName: "YouTube", iconName: "youtube", url: "https://youtube.com/learnwithankit", displayOrder: 1, enabled: true },
+          { id: "default_ig", platformName: "Instagram", iconName: "instagram", url: "https://instagram.com/learnwithankit", displayOrder: 2, enabled: true },
+          { id: "default_fb", platformName: "Facebook", iconName: "facebook", url: "https://facebook.com/learnwithankit", displayOrder: 3, enabled: true },
+          { id: "default_tg", platformName: "Telegram", iconName: "telegram", url: "https://t.me/learnwithankit", displayOrder: 4, enabled: true },
+        ];
+        setSocialLinks(defaults);
+      }
+    } else {
+      const defaults = [
+        { id: "default_yt", platformName: "YouTube", iconName: "youtube", url: "https://youtube.com/learnwithankit", displayOrder: 1, enabled: true },
+        { id: "default_ig", platformName: "Instagram", iconName: "instagram", url: "https://instagram.com/learnwithankit", displayOrder: 2, enabled: true },
+        { id: "default_fb", platformName: "Facebook", iconName: "facebook", url: "https://facebook.com/learnwithankit", displayOrder: 3, enabled: true },
+        { id: "default_tg", platformName: "Telegram", iconName: "telegram", url: "https://t.me/learnwithankit", displayOrder: 4, enabled: true },
+      ];
+      setSocialLinks(defaults);
     }
   }, [socialSettings]);
 
@@ -282,6 +301,7 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
   const [serviceFeatures, setServiceFeatures] = useState("");
   const [serviceBenefits, setServiceBenefits] = useState("");
   const [serviceButtonText, setServiceButtonText] = useState("Buy Now");
+  const [servicePosition, setServicePosition] = useState<number | "">(1);
 
   // Purchased services search/filter states
   const [purchasedSearchTerm, setPurchasedSearchTerm] = useState("");
@@ -296,6 +316,7 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
   const [planFeatures, setPlanFeatures] = useState<string>("");
   const [planVipBenefits, setPlanVipBenefits] = useState<string>("");
   const [planBadgeStyle, setPlanBadgeStyle] = useState("");
+  const [planPosition, setPlanPosition] = useState<number | "">(1);
 
   // --- BADGE SYSTEM ADMIN STATES ---
   const [badges, setBadges] = useState<any[]>([]);
@@ -1848,18 +1869,30 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
 
   const handleEditSocialLinkStart = (link: any) => {
     setEditingSocialLink(link);
-    setSocialFormName(link.platformName);
-    setSocialFormIcon(link.iconName);
-    setSocialFormUrl(link.url);
-    setSocialFormOrder(link.displayOrder);
-    setSocialFormEnabled(link.enabled);
+    setSocialFormName(link.platformName || "");
+    setSocialFormIcon(link.iconName || "youtube");
+    setSocialFormUrl(link.url || "");
+    setSocialFormOrder(link.displayOrder || 1);
+    setSocialFormEnabled(link.enabled !== false);
+    const elem = document.getElementById("social-link-form");
+    if (elem) elem.scrollIntoView({ behavior: "smooth" });
   };
 
   const handleDeleteSocialLink = async (id: string) => {
-    if (confirm("Are you sure you want to remove this social link?")) {
+    const linkObj = socialLinks.find(l => l.id === id);
+    const name = linkObj ? linkObj.platformName : "this link";
+    if (confirm(`Are you sure you want to delete the social link for "${name}"?`)) {
       const updated = socialLinks.filter(l => l.id !== id);
       setSocialLinks(updated);
       await saveSocialLinksDirectly(updated);
+      if (editingSocialLink?.id === id) {
+        setEditingSocialLink(null);
+        setSocialFormName("");
+        setSocialFormIcon("youtube");
+        setSocialFormUrl("");
+        setSocialFormOrder(updated.length + 1);
+        setSocialFormEnabled(true);
+      }
     }
   };
 
@@ -1874,6 +1907,30 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
     await saveSocialLinksDirectly(updated);
   };
 
+  const handleLoadDefaultSocialLinks = async () => {
+    const defaults = [
+      { id: "default_yt", platformName: "YouTube", iconName: "youtube", url: "https://youtube.com/learnwithankit", displayOrder: 1, enabled: true },
+      { id: "default_ig", platformName: "Instagram", iconName: "instagram", url: "https://instagram.com/learnwithankit", displayOrder: 2, enabled: true },
+      { id: "default_fb", platformName: "Facebook", iconName: "facebook", url: "https://facebook.com/learnwithankit", displayOrder: 3, enabled: true },
+      { id: "default_tg", platformName: "Telegram", iconName: "telegram", url: "https://t.me/learnwithankit", displayOrder: 4, enabled: true },
+    ];
+    setSocialLinks(defaults);
+    await saveSocialLinksDirectly(defaults);
+  };
+
+  const handleDeleteAllSocialLinks = async () => {
+    if (confirm("Are you sure you want to delete ALL social media links? No social links will be shown on the website.")) {
+      setSocialLinks([]);
+      await saveSocialLinksDirectly([]);
+      setEditingSocialLink(null);
+      setSocialFormName("");
+      setSocialFormIcon("youtube");
+      setSocialFormUrl("");
+      setSocialFormOrder(1);
+      setSocialFormEnabled(true);
+    }
+  };
+
   // --- PREMIUM & REVENUE SETTINGS HANDLERS ---
   const handleSaveMembershipPlan = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -1881,6 +1938,7 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
     try {
       const parsedPrice = Number(planPrice);
       const parsedDuration = planIsLifetime ? 1200 : Number(planDurationMonths);
+      const parsedPosition = planPosition === "" ? 1 : Number(planPosition);
 
       if (!planName.trim()) throw new Error("Plan name is required.");
       if (isNaN(parsedPrice) || parsedPrice < 0) throw new Error("Price must be a positive number.");
@@ -1894,6 +1952,7 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
         features: planFeatures.split("\n").map(f => f.trim()).filter(Boolean),
         vipBenefits: planVipBenefits.split("\n").map(f => f.trim()).filter(Boolean),
         badgeStyle: planBadgeStyle.trim() || "👑 VIP MEMBER",
+        position: parsedPosition,
       };
 
       if (editingPlan) {
@@ -1914,6 +1973,7 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
       setPlanFeatures("");
       setPlanVipBenefits("");
       setPlanBadgeStyle("");
+      setPlanPosition(1);
     } catch (err: any) {
       alert("Failed to save plan: " + err.message);
     } finally {
@@ -2458,6 +2518,7 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
     setServiceFeatures("");
     setServiceBenefits("");
     setServiceButtonText("Buy Now");
+    setServicePosition(1);
   };
 
   const handleSaveService = async (e: React.FormEvent) => {
@@ -2481,6 +2542,7 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
         features: featuresArr,
         benefits: benefitsArr,
         buttonText: serviceButtonText.trim() || "Buy Now",
+        position: servicePosition === "" ? 1 : Number(servicePosition),
       };
 
       if (editingService) {
@@ -4325,7 +4387,7 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
                   />
                 </div>
 
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-3 gap-3">
                   <div>
                     <label className="block text-[10px] text-zinc-400 font-mono uppercase tracking-wider mb-1">Price (₹)</label>
                     <input
@@ -4334,6 +4396,18 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
                       placeholder="e.g. 500"
                       value={planPrice}
                       onChange={(e) => setPlanPrice(e.target.value === "" ? "" : Number(e.target.value))}
+                      className="w-full bg-slate-950 border border-zinc-800 rounded-xl py-2 px-3 text-zinc-200 font-mono"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] text-zinc-400 font-mono uppercase tracking-wider mb-1">Position / Order</label>
+                    <input
+                      type="number"
+                      min="1"
+                      required
+                      placeholder="e.g. 1"
+                      value={planPosition}
+                      onChange={(e) => setPlanPosition(e.target.value === "" ? "" : Number(e.target.value))}
                       className="w-full bg-slate-950 border border-zinc-800 rounded-xl py-2 px-3 text-zinc-200 font-mono"
                     />
                   </div>
@@ -4421,6 +4495,7 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
                         setPlanFeatures("");
                         setPlanVipBenefits("");
                         setPlanBadgeStyle("");
+                        setPlanPosition(1);
                       }}
                       className="px-3 py-2.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 font-bold uppercase tracking-wider text-[10px] rounded-xl cursor-pointer"
                     >
@@ -4447,13 +4522,15 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
                 </div>
               ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {plans.map((p) => (
+                  {[...plans].sort((a, b) => (a.position ?? 9999) - (b.position ?? 9999)).map((p) => (
                     <div key={p.id} className="p-4 rounded-xl border border-zinc-800 bg-zinc-950/40 space-y-3 relative overflow-hidden flex flex-col justify-between">
-                      <div className="absolute top-0 right-0 p-2 text-[10px] font-mono text-zinc-500 bg-zinc-900 border-l border-b border-zinc-800 rounded-bl-lg">
-                        {p.isLifetime ? "LIFETIME" : `${p.durationMonths} Months`}
+                      <div className="absolute top-0 right-0 p-2 text-[10px] font-mono text-zinc-500 bg-zinc-900 border-l border-b border-zinc-800 rounded-bl-lg flex items-center space-x-1">
+                        <span className="text-amber-400 font-bold">Pos: #{p.position ?? 1}</span>
+                        <span>•</span>
+                        <span>{p.isLifetime ? "LIFETIME" : `${p.durationMonths} Months`}</span>
                       </div>
 
-                      <div className="space-y-1.5 pr-14">
+                      <div className="space-y-1.5 pr-20 pt-1">
                         <span className="px-2 py-0.5 rounded text-[9px] font-mono bg-amber-500/10 text-amber-400 border border-amber-500/20">
                           {p.badgeStyle}
                         </span>
@@ -4484,6 +4561,7 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
                             setPlanFeatures(p.features ? p.features.join("\n") : "");
                             setPlanVipBenefits(p.vipBenefits ? p.vipBenefits.join("\n") : "");
                             setPlanBadgeStyle(p.badgeStyle || "👑 VIP MEMBER");
+                            setPlanPosition(p.position ?? 1);
                           }}
                           className="flex-1 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-[10px] font-bold uppercase tracking-wider rounded-lg cursor-pointer transition-colors"
                         >
@@ -5797,7 +5875,7 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
                 />
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                 <div>
                   <label className="block text-[10px] text-zinc-400 font-mono uppercase tracking-wider mb-1">Price (₹) *</label>
                   <input
@@ -5807,6 +5885,18 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
                     placeholder="e.g. 499"
                     value={servicePrice}
                     onChange={(e) => setServicePrice(e.target.value === "" ? "" : Number(e.target.value))}
+                    className="w-full bg-slate-950 border border-zinc-800 rounded-xl py-2 px-3 text-zinc-200 font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] text-zinc-400 font-mono uppercase tracking-wider mb-1">Position / Order</label>
+                  <input
+                    type="number"
+                    min="1"
+                    required
+                    placeholder="e.g. 1"
+                    value={servicePosition}
+                    onChange={(e) => setServicePosition(e.target.value === "" ? "" : Number(e.target.value))}
                     className="w-full bg-slate-950 border border-zinc-800 rounded-xl py-2 px-3 text-zinc-200 font-mono"
                   />
                 </div>
@@ -5994,7 +6084,7 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
               </div>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {adminServices.map((service) => {
+                {[...adminServices].sort((a, b) => (a.position ?? 9999) - (b.position ?? 9999)).map((service) => {
                   const sPurchases = adminServicePurchases.filter(p => p.serviceId === service.id);
                   const totalPurchases = sPurchases.length;
                   const totalRevenue = sPurchases.reduce((acc, cur) => acc + (cur.price || 0), 0);
@@ -6004,7 +6094,12 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
                       <div className="space-y-2">
                         <div className="flex justify-between items-start">
                           <div>
-                            <h4 className="text-xs font-bold text-zinc-100">{service.name}</h4>
+                            <div className="flex items-center space-x-2">
+                              <h4 className="text-xs font-bold text-zinc-100">{service.name}</h4>
+                              <span className="px-1.5 py-0.5 rounded text-[8px] font-mono bg-amber-500/10 text-amber-400 border border-amber-500/20 font-bold">
+                                Pos: #{service.position ?? 1}
+                              </span>
+                            </div>
                             <div className="flex items-center space-x-2 mt-0.5">
                               <span className="text-[10px] text-amber-500 font-mono font-bold">
                                 Price: ₹{service.price.toLocaleString("en-IN")}
@@ -6074,6 +6169,7 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
                               setServiceFeatures(Array.isArray(service.features) ? service.features.join("\n") : "");
                               setServiceBenefits(Array.isArray(service.benefits) ? service.benefits.join("\n") : "");
                               setServiceButtonText(service.buttonText || "Buy Now");
+                              setServicePosition(service.position ?? 1);
                             }}
                             className="p-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded transition-colors cursor-pointer"
                             title="Edit Service"
@@ -6911,10 +7007,17 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
             )}
 
             {/* Link Add/Edit Creator Form */}
-            <div className="p-4 bg-zinc-950/40 border border-zinc-900 rounded-xl space-y-4">
-              <h4 className="text-[10px] font-mono text-amber-500 uppercase tracking-widest font-bold">
-                {editingSocialLink ? "⚡ Edit Selected Social Link" : "➕ Add New Social Link"}
-              </h4>
+            <div id="social-link-form" className={`p-4 bg-zinc-950/40 border rounded-xl space-y-4 transition-all ${editingSocialLink ? "border-amber-500/50 ring-1 ring-amber-500/20" : "border-zinc-900"}`}>
+              <div className="flex justify-between items-center">
+                <h4 className="text-[10px] font-mono text-amber-500 uppercase tracking-widest font-bold flex items-center space-x-2">
+                  <span>{editingSocialLink ? `⚡ Edit Social Link: ${editingSocialLink.platformName}` : "➕ Add New Social Link"}</span>
+                </h4>
+                {editingSocialLink && (
+                  <span className="text-[10px] bg-amber-500/10 text-amber-400 border border-amber-500/20 px-2 py-0.5 rounded font-mono">
+                    Editing Mode Active
+                  </span>
+                )}
+              </div>
               
               <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-4 items-end">
                 <div>
@@ -6996,33 +7099,58 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
                       setSocialFormOrder(socialLinks.length + 1);
                       setSocialFormEnabled(true);
                     }}
-                    className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 font-bold rounded-xl transition-all"
+                    className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 font-bold rounded-xl transition-all cursor-pointer"
                   >
-                    Cancel
+                    Cancel Edit
                   </button>
                 )}
                 <button
                   type="button"
                   onClick={handleAddOrEditSocialLink}
-                  className="px-5 py-2 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold rounded-xl transition-all shadow-md"
+                  className="px-5 py-2 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold rounded-xl transition-all shadow-md cursor-pointer flex items-center space-x-1.5"
                 >
-                  {editingSocialLink ? "Update Social Link" : "Add Link to List"}
+                  <Save className="w-3.5 h-3.5" />
+                  <span>{editingSocialLink ? "Update Social Link" : "Add Link to List"}</span>
                 </button>
               </div>
             </div>
 
             {/* List of current social links */}
             <div className="space-y-3">
-              <div className="flex justify-between items-center">
+              <div className="flex flex-wrap justify-between items-center gap-2">
                 <h4 className="text-[10px] font-mono text-zinc-400 uppercase tracking-wider font-bold">
-                  📁 Draft Links List ({socialLinks.length} Platform Link(s))
+                  📁 Social Media Links List ({socialLinks.length} Platform Link(s))
                 </h4>
-                <p className="text-[10px] text-zinc-500 italic">Drag-ordering can be manually set via "Order" value. Sorts ascending.</p>
+                <div className="flex items-center space-x-2">
+                  <button
+                    type="button"
+                    onClick={handleLoadDefaultSocialLinks}
+                    className="px-3 py-1 bg-zinc-800 hover:bg-zinc-700 text-amber-400 text-[10px] font-bold rounded-lg border border-zinc-700 transition-all cursor-pointer"
+                  >
+                    Restore Standard Default Links
+                  </button>
+                  {socialLinks.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={handleDeleteAllSocialLinks}
+                      className="px-3 py-1 bg-red-500/10 hover:bg-red-500/20 text-red-400 text-[10px] font-bold rounded-lg border border-red-500/20 transition-all cursor-pointer"
+                    >
+                      Delete All Links
+                    </button>
+                  )}
+                </div>
               </div>
 
               {socialLinks.length === 0 ? (
-                <div className="p-8 text-center bg-zinc-950/20 border border-zinc-900 rounded-xl text-zinc-500 font-sans">
-                  No custom social links added yet. Platform will show default links (YouTube, Instagram, Facebook, Telegram) if empty.
+                <div className="p-8 text-center bg-zinc-950/20 border border-zinc-900 rounded-xl text-zinc-500 font-sans space-y-3">
+                  <p>No social media links configured. No social icons will be shown on the website.</p>
+                  <button
+                    type="button"
+                    onClick={handleLoadDefaultSocialLinks}
+                    className="px-4 py-2 bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/30 rounded-xl text-xs font-bold transition-all cursor-pointer"
+                  >
+                    Load Standard Default Links (YouTube, Instagram, Facebook, Telegram)
+                  </button>
                 </div>
               ) : (
                 <div className="border border-zinc-900 rounded-xl overflow-hidden bg-zinc-950/20">
@@ -7040,43 +7168,53 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
                     <tbody className="divide-y divide-zinc-900/40 text-zinc-300">
                       {[...socialLinks]
                         .sort((a, b) => (a.displayOrder || 0) - (b.displayOrder || 0))
-                        .map((link) => (
-                          <tr key={link.id} className="hover:bg-zinc-900/30 transition-all">
-                            <td className="p-3 font-mono font-bold text-amber-500">{link.displayOrder}</td>
-                            <td className="p-3 font-bold text-zinc-100">{link.platformName}</td>
-                            <td className="p-3 font-mono text-zinc-400 text-[10px]">{link.iconName}</td>
-                            <td className="p-3 text-zinc-400 font-mono truncate max-w-xs">{link.url}</td>
-                            <td className="p-3">
-                              <button
-                                type="button"
-                                onClick={() => handleToggleSocialLink(link.id)}
-                                className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
-                                  link.enabled
-                                    ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
-                                    : "bg-red-500/10 text-red-400 border border-red-500/20"
-                                }`}
-                              >
-                                {link.enabled ? "Active" : "Inactive"}
-                              </button>
-                            </td>
-                            <td className="p-3 text-right space-x-2">
-                              <button
-                                type="button"
-                                onClick={() => handleEditSocialLinkStart(link)}
-                                className="px-2 py-1 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 rounded-lg text-[10px]"
-                              >
-                                Edit
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => handleDeleteSocialLink(link.id)}
-                                className="px-2 py-1 bg-red-500/10 hover:bg-red-500/20 text-red-400 rounded-lg text-[10px]"
-                              >
-                                Delete
-                              </button>
-                            </td>
-                          </tr>
-                        ))}
+                        .map((link) => {
+                          const isBeingEdited = editingSocialLink?.id === link.id;
+                          return (
+                            <tr key={link.id} className={`transition-all ${isBeingEdited ? "bg-amber-500/10 border-l-2 border-l-amber-500" : "hover:bg-zinc-900/30"}`}>
+                              <td className="p-3 font-mono font-bold text-amber-500">#{link.displayOrder}</td>
+                              <td className="p-3 font-bold text-zinc-100 flex items-center space-x-2">
+                                <span>{link.platformName}</span>
+                                {isBeingEdited && (
+                                  <span className="text-[9px] bg-amber-500 text-slate-950 px-1.5 py-0.2 font-mono rounded font-black">EDITING</span>
+                                )}
+                              </td>
+                              <td className="p-3 font-mono text-zinc-400 text-[10px]">{link.iconName}</td>
+                              <td className="p-3 text-zinc-400 font-mono truncate max-w-xs">{link.url}</td>
+                              <td className="p-3">
+                                <button
+                                  type="button"
+                                  onClick={() => handleToggleSocialLink(link.id)}
+                                  className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold cursor-pointer transition-colors ${
+                                    link.enabled
+                                      ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 hover:bg-emerald-500/20"
+                                      : "bg-red-500/10 text-red-400 border border-red-500/20 hover:bg-red-500/20"
+                                  }`}
+                                >
+                                  {link.enabled ? "Active" : "Inactive"}
+                                </button>
+                              </td>
+                              <td className="p-3 text-right space-x-2">
+                                <button
+                                  type="button"
+                                  onClick={() => handleEditSocialLinkStart(link)}
+                                  className="px-2.5 py-1 bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/30 rounded-lg text-[10px] font-bold transition-all cursor-pointer inline-flex items-center space-x-1"
+                                >
+                                  <Edit className="w-3 h-3" />
+                                  <span>Edit</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeleteSocialLink(link.id)}
+                                  className="px-2.5 py-1 bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/30 rounded-lg text-[10px] font-bold transition-all cursor-pointer inline-flex items-center space-x-1"
+                                >
+                                  <Trash2 className="w-3 h-3" />
+                                  <span>Delete</span>
+                                </button>
+                              </td>
+                            </tr>
+                          );
+                        })}
                     </tbody>
                   </table>
                 </div>

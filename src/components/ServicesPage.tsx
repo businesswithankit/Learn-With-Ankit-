@@ -127,19 +127,6 @@ export default function ServicesPage({ user, onUpdateUser }: ServicesPageProps) 
       const purchaseRef = doc(collection(db, "servicePurchases"));
       const notifRef = doc(collection(db, "notifications"));
       const revenueRef = doc(db, "settings", "revenue");
-      const txRef = doc(collection(db, "revenueTransactions"));
-
-      // 1. Fetch founder user doc ref outside transaction (due to Firestore transaction read constraint)
-      let founderRef = null;
-      try {
-        const founderQuery = query(collection(db, "users"), where("role", "==", "founder"), limit(1));
-        const founderSnap = await getDocs(founderQuery);
-        if (!founderSnap.empty) {
-          founderRef = founderSnap.docs[0].ref;
-        }
-      } catch (err) {
-        console.warn("Founder query failed: ", err);
-      }
 
       await runTransaction(db, async (transaction) => {
         // 1. Read User Profile
@@ -150,17 +137,8 @@ export default function ServicesPage({ user, onUpdateUser }: ServicesPageProps) 
         const userData = userSnap.data();
         const currentBalance = userData.walletBalance || 0;
 
-        // Also fetch founder profile if found
-        let founderSnapTx = null;
-        if (founderRef) {
-          founderSnapTx = await transaction.get(founderRef);
-        }
-
         // Fetch global revenue settings
         const revSnap = await transaction.get(revenueRef);
-
-        const founderWalletRef = doc(db, "settings", "founderRevenueWallet");
-        const founderWalletSnap = await transaction.get(founderWalletRef);
 
         if (currentBalance < selectedService.price) {
           throw new Error("Insufficient Wallet Balance");
@@ -170,26 +148,6 @@ export default function ServicesPage({ user, onUpdateUser }: ServicesPageProps) 
         const nextBalance = currentBalance - selectedService.price;
         transaction.update(userRef, {
           walletBalance: nextBalance
-        });
-
-        // Credit the Founder's Wallet automatically
-        if (founderRef && founderSnapTx && founderSnapTx.exists()) {
-          const founderData = founderSnapTx.data();
-          const currentFounderBalance = founderData.walletBalance || 0;
-          transaction.update(founderRef, {
-            walletBalance: currentFounderBalance + selectedService.price
-          });
-        }
-
-        // Credit the dedicated Founder Revenue Wallet
-        let founderWalletData = { currentBalance: 0, totalLifetimeRevenue: 0 };
-        if (founderWalletSnap.exists()) {
-          founderWalletData = founderWalletSnap.data() as any;
-        }
-        transaction.set(founderWalletRef, {
-          currentBalance: (founderWalletData.currentBalance || 0) + selectedService.price,
-          totalLifetimeRevenue: (founderWalletData.totalLifetimeRevenue || 0) + selectedService.price,
-          updatedAt: serverTimestamp()
         });
 
         // Calculate duration and expiry
@@ -411,7 +369,7 @@ export default function ServicesPage({ user, onUpdateUser }: ServicesPageProps) 
               </div>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {services.map((service) => {
+                {[...services].sort((a, b) => (a.position ?? 9999) - (b.position ?? 9999)).map((service) => {
                   const isPurchased = allPurchasedServiceIds.has(service.id);
                   const durationBadgeText = service.durationType === "Fixed" && service.durationValue
                     ? `${service.durationValue} ${service.durationUnit} Access`

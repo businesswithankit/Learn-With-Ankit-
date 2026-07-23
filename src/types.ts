@@ -220,6 +220,7 @@ export interface MembershipPlan {
   createdAt: any;
   badgeStyle?: string;
   vipBenefits?: string[];
+  position?: number;
 }
 
 export interface PlatformFees {
@@ -312,6 +313,7 @@ export interface Service {
   features?: string[];
   benefits?: string[];
   buttonText?: string;
+  position?: number;
 }
 
 export interface ServicePurchase {
