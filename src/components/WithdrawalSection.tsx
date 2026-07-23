@@ -3,7 +3,7 @@ import { collection, addDoc, serverTimestamp, doc, updateDoc, writeBatch, onSnap
 import { db, handleFirestoreError, OperationType } from "../firebase";
 import { UserProfile, PlatformFees, WithdrawalSettings } from "../types";
 import WalletCard from "./WalletCard";
-import { Landmark, CheckCircle, AlertTriangle, ArrowUpRight, HelpCircle, Key, Zap, Clock, Calendar, Lock, ShieldAlert, Info } from "lucide-react";
+import { Landmark, CheckCircle, AlertTriangle, ArrowUpRight, HelpCircle, Key, Zap, Clock, Calendar, Lock, ShieldAlert, Info, X } from "lucide-react";
 import { hashPin } from "../utils/pin";
 
 interface WithdrawalSectionProps {
@@ -148,6 +148,7 @@ export default function WithdrawalSection({ user, onUpdateUser }: WithdrawalSect
   const [withdrawalSettings, setWithdrawalSettings] = useState<WithdrawalSettings | null>(null);
   const [userWithdrawalsHistory, setUserWithdrawalsHistory] = useState<any[]>([]);
   const [withdrawalType, setWithdrawalType] = useState<"Standard" | "Fast">("Standard");
+  const [showScheduleModal, setShowScheduleModal] = useState(false);
 
   useEffect(() => {
     const unsubFees = onSnapshot(doc(db, "settings", "fees"), (snapshot) => {
@@ -397,73 +398,6 @@ export default function WithdrawalSection({ user, onUpdateUser }: WithdrawalSect
         <WalletCard balance={user.walletBalance} username={user.username} />
       </div>
 
-      {/* SCHEDULE STATUS CARD */}
-      <div className="w-full max-w-2xl mx-auto rounded-2xl bg-zinc-950/60 border border-zinc-800 p-5 shadow-xl space-y-4">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-zinc-850">
-          <div className="flex items-center space-x-2.5">
-            <div className={`p-2 rounded-xl ${scheduleInfo.isOpen ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20" : "bg-amber-500/10 text-amber-400 border border-amber-500/20"}`}>
-              {scheduleInfo.isOpen ? <Clock className="w-5 h-5" /> : <Lock className="w-5 h-5" />}
-            </div>
-            <div>
-              <div className="flex items-center space-x-2">
-                <h4 className="text-sm font-display font-bold text-zinc-100 uppercase tracking-wider">Withdrawal Schedule & Availability</h4>
-                <span className={`px-2 py-0.5 text-[9px] font-mono font-bold uppercase tracking-wider rounded-full border ${scheduleInfo.isOpen ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/30" : "bg-amber-500/15 text-amber-400 border-amber-500/30"}`}>
-                  {scheduleInfo.isOpen ? "🟢 Standard Window Open" : "🟡 Standard Window Closed"}
-                </span>
-                <span className="px-2 py-0.5 text-[9px] font-mono font-bold uppercase tracking-wider rounded-full border bg-purple-500/15 text-purple-400 border-purple-500/30">
-                  ⚡ Fast Payout: 24/7 Anytime
-                </span>
-              </div>
-              <p className="text-[11px] text-zinc-400 mt-0.5">
-                Current local time: <strong className="text-amber-400 font-mono">{scheduleInfo.currentDay}, {scheduleInfo.currentTime}</strong>
-              </p>
-            </div>
-          </div>
-        </div>
-
-        {!scheduleInfo.isOpen && (
-          <div className="p-3.5 rounded-xl bg-purple-500/10 border border-purple-500/20 text-purple-300 text-xs flex items-start space-x-2.5">
-            <Zap className="w-4 h-4 text-purple-400 shrink-0 mt-0.5" />
-            <div className="space-y-1">
-              <p className="font-semibold text-purple-300">Standard Payout Schedule Window Closed</p>
-              <p className="text-[11px] text-zinc-300 leading-relaxed">
-                {scheduleInfo.reason} You can still withdraw right now by selecting <strong className="text-purple-400">Fast Payout (Priority)</strong> below!
-              </p>
-            </div>
-          </div>
-        )}
-
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs font-sans pt-1">
-          <div className="bg-slate-950/60 p-3 rounded-xl border border-zinc-850 space-y-1">
-            <span className="text-[9px] text-zinc-500 font-mono uppercase tracking-wider block">Standard Operating Days</span>
-            <span className="font-medium text-zinc-200 text-[11px] truncate block" title={scheduleInfo.allowedDays.join(", ")}>
-              {scheduleInfo.allowedDays.length === 7 ? "Everyday (All 7 Days)" : scheduleInfo.allowedDays.join(", ")}
-            </span>
-          </div>
-
-          <div className="bg-slate-950/60 p-3 rounded-xl border border-zinc-850 space-y-1">
-            <span className="text-[9px] text-zinc-500 font-mono uppercase tracking-wider block">Standard Daily Hours</span>
-            <span className="font-mono text-zinc-200 text-[11px] font-medium block">
-              {scheduleInfo.startTime} - {scheduleInfo.endTime}
-            </span>
-          </div>
-
-          <div className="bg-slate-950/60 p-3 rounded-xl border border-zinc-850 space-y-1">
-            <span className="text-[9px] text-zinc-500 font-mono uppercase tracking-wider block">Per Request Min/Max</span>
-            <span className="font-mono text-amber-400 text-[11px] font-medium block">
-              ₹{scheduleInfo.minAmount.toLocaleString("en-IN")} - ₹{scheduleInfo.maxAmount.toLocaleString("en-IN")}
-            </span>
-          </div>
-
-          <div className="bg-slate-950/60 p-3 rounded-xl border border-zinc-850 space-y-1">
-            <span className="text-[9px] text-zinc-500 font-mono uppercase tracking-wider block">Requested Today</span>
-            <span className="font-mono text-emerald-400 text-[11px] font-medium block">
-              ₹{totals.today.toLocaleString("en-IN")} / ₹{scheduleInfo.dailyLimit.toLocaleString("en-IN")}
-            </span>
-          </div>
-        </div>
-      </div>
-
       <div className="w-full max-w-2xl mx-auto rounded-2xl glass-panel p-6 border border-zinc-800 relative overflow-hidden shadow-xl">
         <div className="absolute top-0 right-0 left-0 h-[2px] bg-gradient-to-r from-amber-500/10 via-amber-500 to-amber-500/10" />
 
@@ -571,22 +505,36 @@ export default function WithdrawalSection({ user, onUpdateUser }: WithdrawalSect
 
           {/* Withdrawal Processing Speed selector */}
           <div className="space-y-2">
-            <label className="block text-xs text-zinc-400 font-medium uppercase tracking-wider">
-              Withdrawal Processing Speed
-            </label>
+            <div className="flex justify-between items-center">
+              <label className="block text-xs text-zinc-400 font-medium uppercase tracking-wider">
+                Withdrawal Processing Speed
+              </label>
+              <button
+                type="button"
+                onClick={() => setShowScheduleModal(true)}
+                className="text-[10px] text-amber-400 hover:text-amber-300 font-mono font-bold flex items-center space-x-1 underline cursor-pointer"
+              >
+                <Info className="w-3 h-3" />
+                <span>View Operating Hours & Schedule</span>
+              </button>
+            </div>
             <div className="grid grid-cols-2 gap-3">
               <button
                 type="button"
-                onClick={() => setWithdrawalType("Standard")}
-                className={`py-3 px-4 rounded-xl border font-semibold text-xs transition-all flex flex-col items-center justify-center space-y-1 cursor-pointer ${
+                onClick={() => {
+                  setWithdrawalType("Standard");
+                  setShowScheduleModal(true);
+                }}
+                className={`py-3 px-4 rounded-xl border font-semibold text-xs transition-all flex flex-col items-center justify-center space-y-1 cursor-pointer relative ${
                   withdrawalType === "Standard"
                     ? "bg-amber-500/10 border-amber-500 text-amber-400"
-                    : "bg-zinc-950/20 border-zinc-850 hover:bg-zinc-900/40 text-zinc-405"
+                    : "bg-zinc-950/20 border-zinc-850 hover:bg-zinc-900/40 text-zinc-400"
                 }`}
               >
                 <Landmark className="w-4 h-4 text-amber-500" />
                 <span>Standard Payout</span>
                 <span className="text-[9px] text-zinc-500 font-normal">Normal administrative queue</span>
+                <span className="text-[9px] text-amber-400/90 font-mono font-bold mt-0.5">ℹ️ Tap to view schedule</span>
               </button>
 
               <button
@@ -595,7 +543,7 @@ export default function WithdrawalSection({ user, onUpdateUser }: WithdrawalSect
                 className={`py-3 px-4 rounded-xl border font-semibold text-xs transition-all flex flex-col items-center justify-center space-y-1 cursor-pointer ${
                   withdrawalType === "Fast"
                     ? "bg-purple-500/10 border-purple-500 text-purple-400"
-                    : "bg-zinc-950/20 border-zinc-850 hover:bg-zinc-900/40 text-zinc-405"
+                    : "bg-zinc-950/20 border-zinc-850 hover:bg-zinc-900/40 text-zinc-400"
                 }`}
               >
                 <Zap className="w-4 h-4 text-purple-500" />
@@ -682,6 +630,98 @@ export default function WithdrawalSection({ user, onUpdateUser }: WithdrawalSect
           </div>
         </form>
       </div>
+
+      {/* WITHDRAWAL SCHEDULE POPUP MODAL */}
+      {showScheduleModal && (
+        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="bg-zinc-950 border border-zinc-800 rounded-2xl max-w-xl w-full p-6 shadow-2xl relative space-y-4 max-h-[90vh] overflow-y-auto">
+            {/* Modal Header */}
+            <div className="flex items-start justify-between pb-3 border-b border-zinc-850 gap-2">
+              <div className="flex items-center space-x-2.5">
+                <div className={`p-2 rounded-xl shrink-0 ${scheduleInfo.isOpen ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20" : "bg-amber-500/10 text-amber-400 border border-amber-500/20"}`}>
+                  {scheduleInfo.isOpen ? <Clock className="w-5 h-5" /> : <Lock className="w-5 h-5" />}
+                </div>
+                <div>
+                  <h4 className="text-sm font-display font-bold text-zinc-100 uppercase tracking-wider">
+                    Withdrawal Schedule & Availability
+                  </h4>
+                  <div className="flex flex-wrap items-center gap-1.5 mt-1">
+                    <span className={`px-2 py-0.5 text-[9px] font-mono font-bold uppercase tracking-wider rounded-full border ${scheduleInfo.isOpen ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/30" : "bg-amber-500/15 text-amber-400 border-amber-500/30"}`}>
+                      {scheduleInfo.isOpen ? "🟢 Standard Window Open" : "🟡 Standard Window Closed"}
+                    </span>
+                    <span className="px-2 py-0.5 text-[9px] font-mono font-bold uppercase tracking-wider rounded-full border bg-purple-500/15 text-purple-400 border-purple-500/30">
+                      ⚡ Fast Payout: 24/7 Anytime
+                    </span>
+                  </div>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowScheduleModal(false)}
+                className="p-1.5 text-zinc-400 hover:text-zinc-100 hover:bg-zinc-900 rounded-xl transition-all cursor-pointer shrink-0"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <p className="text-[11px] text-zinc-400">
+              Current local time: <strong className="text-amber-400 font-mono">{scheduleInfo.currentDay}, {scheduleInfo.currentTime}</strong>
+            </p>
+
+            {!scheduleInfo.isOpen && (
+              <div className="p-3.5 rounded-xl bg-purple-500/10 border border-purple-500/20 text-purple-300 text-xs flex items-start space-x-2.5">
+                <Zap className="w-4 h-4 text-purple-400 shrink-0 mt-0.5" />
+                <div className="space-y-1">
+                  <p className="font-semibold text-purple-300">Standard Payout Schedule Window Closed</p>
+                  <p className="text-[11px] text-zinc-300 leading-relaxed">
+                    {scheduleInfo.reason} You can still withdraw right now by selecting <strong className="text-purple-400">Fast Payout (Priority)</strong>!
+                  </p>
+                </div>
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs font-sans pt-1">
+              <div className="bg-slate-950/60 p-3.5 rounded-xl border border-zinc-850 space-y-1">
+                <span className="text-[9px] text-zinc-500 font-mono uppercase tracking-wider block">Standard Operating Days</span>
+                <span className="font-medium text-zinc-200 text-[11px] truncate block" title={scheduleInfo.allowedDays.join(", ")}>
+                  {scheduleInfo.allowedDays.length === 7 ? "Everyday (All 7 Days)" : scheduleInfo.allowedDays.join(", ")}
+                </span>
+              </div>
+
+              <div className="bg-slate-950/60 p-3.5 rounded-xl border border-zinc-850 space-y-1">
+                <span className="text-[9px] text-zinc-500 font-mono uppercase tracking-wider block">Standard Daily Hours</span>
+                <span className="font-mono text-zinc-200 text-[11px] font-medium block">
+                  {scheduleInfo.startTime} - {scheduleInfo.endTime}
+                </span>
+              </div>
+
+              <div className="bg-slate-950/60 p-3.5 rounded-xl border border-zinc-850 space-y-1">
+                <span className="text-[9px] text-zinc-500 font-mono uppercase tracking-wider block">Per Request Min/Max</span>
+                <span className="font-mono text-amber-400 text-[11px] font-medium block">
+                  ₹{scheduleInfo.minAmount.toLocaleString("en-IN")} - ₹{scheduleInfo.maxAmount.toLocaleString("en-IN")}
+                </span>
+              </div>
+
+              <div className="bg-slate-950/60 p-3.5 rounded-xl border border-zinc-850 space-y-1">
+                <span className="text-[9px] text-zinc-500 font-mono uppercase tracking-wider block">Requested Today</span>
+                <span className="font-mono text-emerald-400 text-[11px] font-medium block">
+                  ₹{totals.today.toLocaleString("en-IN")} / ₹{scheduleInfo.dailyLimit.toLocaleString("en-IN")}
+                </span>
+              </div>
+            </div>
+
+            <div className="pt-2 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setShowScheduleModal(false)}
+                className="px-5 py-2 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold rounded-xl text-xs transition-all shadow-md cursor-pointer"
+              >
+                Understood & Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

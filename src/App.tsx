@@ -611,16 +611,7 @@ export default function App() {
             <p className="text-xs text-zinc-500 font-medium">Earnings Tracking & Management Console</p>
           </div>
 
-          {/* Live Data Connection Badge */}
-          <div className="flex items-center justify-center space-x-2 py-1.5 px-3 bg-slate-900/80 border border-zinc-800/80 rounded-full text-[10px] font-mono text-zinc-400">
-            <span className="relative flex h-2 w-2">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-              <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
-            </span>
-            <span className="text-zinc-300 font-semibold">Vault Node Active</span>
-            <span className="text-zinc-700">•</span>
-            <span className="text-amber-400/90 font-mono">Real-Time Data Sync</span>
-          </div>
+
 
           {/* Data Loading States */}
           {authLoading ? (
