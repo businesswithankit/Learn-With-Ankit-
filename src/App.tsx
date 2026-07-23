@@ -1297,7 +1297,7 @@ export default function App() {
                   <div className="flex items-start justify-between">
                     <div className="space-y-1">
                       <div className="text-3xl sm:text-4xl font-display font-black text-zinc-100 flex items-center">
-                        ₹&nbsp;<AnimatedCounter value={activeUser.totalEarnings || 0} />
+                        ₹&nbsp;<AnimatedCounter value={(activeUser.totalEarnings || 0) + (activeUser.industryEarnings || 0)} />
                       </div>
                       <h3 className="text-sm sm:text-base font-display font-bold text-rose-300">
                         All Time Revenue
@@ -1312,7 +1312,7 @@ export default function App() {
                       type="button"
                       onClick={() => setRevenueDetailModal({
                         title: "All Time Revenue",
-                        amount: activeUser.totalEarnings || 0,
+                        amount: (activeUser.totalEarnings || 0) + (activeUser.industryEarnings || 0),
                         period: "All Time"
                       })}
                       className="text-xs font-semibold text-rose-300 hover:text-rose-100 flex items-center space-x-1 group-hover:translate-x-1 transition-transform cursor-pointer"
@@ -1322,46 +1322,35 @@ export default function App() {
                     </button>
                   </div>
                 </div>
-              </div>
 
-              {/* Industry Earnings Dedicated Dashboard Card */}
-              <div className="relative rounded-3xl bg-gradient-to-br from-emerald-950/70 via-zinc-950 to-zinc-900 border border-emerald-500/30 p-6 shadow-xl space-y-4 group hover:border-emerald-400/60 transition-all">
-                <div className="flex items-start justify-between">
-                  <div className="space-y-1">
-                    <div className="text-3xl sm:text-4xl font-display font-black text-zinc-100 flex items-center">
-                      ₹&nbsp;<AnimatedCounter value={activeUser.industryEarnings || 0} />
+                {/* Card 5: Industry Earnings (Only visible after Admin approval) */}
+                {(activeUser.industryEarnings || 0) > 0 && (
+                  <div className="relative rounded-3xl bg-gradient-to-br from-emerald-950/70 via-zinc-950 to-zinc-900 border border-emerald-500/30 p-6 shadow-xl space-y-4 group hover:border-emerald-400/60 transition-all">
+                    <div className="flex items-start justify-between">
+                      <div className="space-y-1">
+                        <div className="text-3xl sm:text-4xl font-display font-black text-zinc-100 flex items-center">
+                          ₹&nbsp;<AnimatedCounter value={activeUser.industryEarnings || 0} />
+                        </div>
+                        <h3 className="text-sm sm:text-base font-display font-bold text-emerald-300">
+                          Industry Earnings
+                        </h3>
+                      </div>
+                      <div className="w-12 h-12 rounded-full bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-emerald-400 shadow-inner shrink-0">
+                        <Briefcase className="w-6 h-6" />
+                      </div>
                     </div>
-                    <h3 className="text-sm sm:text-base font-display font-bold text-emerald-300 flex items-center space-x-2">
-                      <span>Industry Earnings</span>
-                      <span className="text-[10px] font-mono font-medium text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20">
-                        Previous Platform Work
-                      </span>
-                    </h3>
-                    <p className="text-xs text-zinc-400 font-sans">
-                      Verified earnings from prior platforms (e.g. Zee Platform) approved by administration.
-                    </p>
+                    <div className="pt-3 border-t border-emerald-500/20">
+                      <button
+                        type="button"
+                        onClick={() => setIndustryDetailModal(true)}
+                        className="text-xs font-semibold text-emerald-300 hover:text-emerald-100 flex items-center space-x-1 group-hover:translate-x-1 transition-transform cursor-pointer"
+                      >
+                        <span>Click here to view detail(s)</span>
+                        <ExternalLink className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
                   </div>
-                  <div className="w-12 h-12 rounded-full bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-emerald-400 shadow-inner shrink-0">
-                    <Briefcase className="w-6 h-6" />
-                  </div>
-                </div>
-                <div className="pt-3 border-t border-emerald-500/20 flex items-center justify-between">
-                  <button
-                    type="button"
-                    onClick={() => setIndustryDetailModal(true)}
-                    className="text-xs font-semibold text-emerald-300 hover:text-emerald-100 flex items-center space-x-1 group-hover:translate-x-1 transition-transform cursor-pointer"
-                  >
-                    <span>Click here to view detail(s)</span>
-                    <ExternalLink className="w-3.5 h-3.5" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setActivePage("profile")}
-                    className="text-[11px] font-mono text-zinc-400 hover:text-emerald-300 underline cursor-pointer"
-                  >
-                    + Submit Claim
-                  </button>
-                </div>
+                )}
               </div>
 
               {/* Wallet Card Center Stage */}
