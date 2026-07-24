@@ -66,6 +66,59 @@ export default function ProfileSection({ user, onUpdateUser }: ProfileSectionPro
   // Referral System states
   const [copiedCode, setCopiedCode] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
+  const [refRolling, setRefRolling] = useState({
+    today: 0,
+    last7Days: 0,
+    last30Days: 0,
+    total: 0
+  });
+
+  useEffect(() => {
+    if (!user?.userId) return;
+    const q = query(
+      collection(db, "referralRecords"),
+      where("referrerUserId", "==", user.userId)
+    );
+    const unsub = onSnapshot(q, (snapshot) => {
+      const now = Date.now();
+      const startOfToday = new Date();
+      startOfToday.setHours(0, 0, 0, 0);
+      const startOfTodayMs = startOfToday.getTime();
+      const sevenDaysAgo = now - 7 * 24 * 60 * 60 * 1000;
+      const thirtyDaysAgo = now - 30 * 24 * 60 * 60 * 1000;
+
+      let rToday = 0;
+      let r7 = 0;
+      let r30 = 0;
+      let rTot = 0;
+
+      snapshot.forEach((d) => {
+        const data = d.data();
+        let recordTime = now;
+        if (data.timestamp) {
+          if (typeof data.timestamp.toMillis === "function") recordTime = data.timestamp.toMillis();
+          else if (data.timestamp.seconds) recordTime = data.timestamp.seconds * 1000;
+          else if (data.timestamp instanceof Date) recordTime = data.timestamp.getTime();
+          else recordTime = new Date(data.timestamp).getTime() || now;
+        }
+        const amt = data.amount || 0;
+        rTot += amt;
+        if (recordTime >= startOfTodayMs) rToday += amt;
+        if (recordTime >= sevenDaysAgo) r7 += amt;
+        if (recordTime >= thirtyDaysAgo) r30 += amt;
+      });
+
+      setRefRolling({
+        today: rToday,
+        last7Days: r7,
+        last30Days: r30,
+        total: rTot
+      });
+    }, (err) => {
+      console.warn("Error loading referral records:", err);
+    });
+    return () => unsub();
+  }, [user?.userId]);
 
   const userRefCode = user.referralCode || `REF-${(user.customUserId || user.userId.substring(0, 5)).toUpperCase()}`;
   const referralLink = typeof window !== "undefined" ? `${window.location.origin}?ref=${userRefCode}` : `https://learnwithankit.com?ref=${userRefCode}`;
@@ -1465,30 +1518,49 @@ export default function ProfileSection({ user, onUpdateUser }: ProfileSectionPro
 
                     {/* Referral Progress Bar & Earnings Bar */}
                     <div className="pt-4 border-t border-amber-500/20 space-y-3">
-                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 p-3 bg-zinc-950/60 rounded-2xl border border-amber-500/10">
-                        <div>
-                          <span className="text-[10px] font-mono text-zinc-400 uppercase tracking-wider block">
-                            Commission / Referral
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 p-3.5 bg-zinc-950/80 rounded-2xl border border-amber-500/20">
+                        <div className="p-2.5 bg-amber-950/30 rounded-xl border border-amber-500/10">
+                          <span className="text-[10px] font-mono text-amber-400/90 uppercase tracking-wider block font-bold">
+                            1 Day (Today)
                           </span>
-                          <span className="text-lg font-display font-bold text-amber-300 font-mono">
-                            ₹{(user.referralCommissionRate || 500).toLocaleString("en-IN")}
-                          </span>
-                        </div>
-                        <div>
-                          <span className="text-[10px] font-mono text-zinc-400 uppercase tracking-wider block">
-                            Total Commissions Earned
-                          </span>
-                          <span className="text-lg font-display font-black text-emerald-400 font-mono">
-                            ₹{(user.referralEarnings || 0).toLocaleString("en-IN")}
+                          <span className="text-base sm:text-lg font-display font-black text-zinc-100 font-mono">
+                            ₹{refRolling.today.toLocaleString("en-IN")}
                           </span>
                         </div>
-                        <div>
-                          <span className="text-[10px] font-mono text-zinc-400 uppercase tracking-wider block">
-                            Referred Affiliates
+                        <div className="p-2.5 bg-amber-950/30 rounded-xl border border-amber-500/10">
+                          <span className="text-[10px] font-mono text-amber-400/90 uppercase tracking-wider block font-bold">
+                            7 Days
                           </span>
-                          <span className="text-lg font-display font-bold text-amber-200 font-mono">
-                            {user.referralCount || 0} Members
+                          <span className="text-base sm:text-lg font-display font-black text-zinc-100 font-mono">
+                            ₹{refRolling.last7Days.toLocaleString("en-IN")}
                           </span>
+                        </div>
+                        <div className="p-2.5 bg-amber-950/30 rounded-xl border border-amber-500/10">
+                          <span className="text-[10px] font-mono text-amber-400/90 uppercase tracking-wider block font-bold">
+                            30 Days
+                          </span>
+                          <span className="text-base sm:text-lg font-display font-black text-zinc-100 font-mono">
+                            ₹{refRolling.last30Days.toLocaleString("en-IN")}
+                          </span>
+                        </div>
+                        <div className="p-2.5 bg-amber-950/30 rounded-xl border border-amber-500/10">
+                          <span className="text-[10px] font-mono text-amber-400/90 uppercase tracking-wider block font-bold">
+                            Total Commissions
+                          </span>
+                          <span className="text-base sm:text-lg font-display font-black text-emerald-400 font-mono">
+                            ₹{Math.max(refRolling.total, user.referralEarnings || 0).toLocaleString("en-IN")}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="flex flex-wrap items-center justify-between gap-2 px-1 text-xs text-zinc-300 font-mono">
+                        <div className="flex items-center space-x-1.5 bg-zinc-900/90 px-3 py-1.5 rounded-xl border border-zinc-800">
+                          <Coins className="w-3.5 h-3.5 text-amber-400" />
+                          <span>Commission Rate: <strong className="text-amber-300">₹{(user.referralCommissionRate || 500).toLocaleString("en-IN")} / referral</strong></span>
+                        </div>
+                        <div className="flex items-center space-x-1.5 bg-zinc-900/90 px-3 py-1.5 rounded-xl border border-zinc-800">
+                          <Users className="w-3.5 h-3.5 text-amber-400" />
+                          <span>Referred Affiliates: <strong className="text-amber-200">{user.referralCount || 0} Members</strong></span>
                         </div>
                       </div>
 
