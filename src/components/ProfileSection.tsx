@@ -66,8 +66,6 @@ export default function ProfileSection({ user, onUpdateUser }: ProfileSectionPro
   // Referral System states
   const [copiedCode, setCopiedCode] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
-  const [refReqLoading, setRefReqLoading] = useState(false);
-  const [refReqSuccess, setRefReqSuccess] = useState("");
 
   const userRefCode = user.referralCode || `REF-${(user.customUserId || user.userId.substring(0, 5)).toUpperCase()}`;
   const referralLink = typeof window !== "undefined" ? `${window.location.origin}?ref=${userRefCode}` : `https://learnwithankit.com?ref=${userRefCode}`;
@@ -82,26 +80,6 @@ export default function ProfileSection({ user, onUpdateUser }: ProfileSectionPro
     navigator.clipboard.writeText(referralLink);
     setCopiedLink(true);
     setTimeout(() => setCopiedLink(false), 3000);
-  };
-
-  const handleRequestReferralApproval = async () => {
-    setRefReqLoading(true);
-    setRefReqSuccess("");
-    try {
-      await addDoc(collection(db, "notifications"), {
-        userId: "all",
-        title: "🙋 Referral System Approval Requested",
-        body: `User "${user.username}" (${user.email || user.userId}) has requested approval for the Referral Partner Program.`,
-        timestamp: serverTimestamp(),
-        isRead: false,
-        type: "system",
-      });
-      setRefReqSuccess("Referral activation request sent to Administrator successfully!");
-    } catch (err: any) {
-      console.error("Error requesting referral approval:", err);
-    } finally {
-      setRefReqLoading(false);
-    }
   };
 
   // Realtime subscription for user's Industry Earnings requests
@@ -1487,20 +1465,28 @@ export default function ProfileSection({ user, onUpdateUser }: ProfileSectionPro
 
                     {/* Referral Progress Bar & Earnings Bar */}
                     <div className="pt-4 border-t border-amber-500/20 space-y-3">
-                      <div className="flex items-center justify-between">
-                        <div className="space-y-0.5">
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 p-3 bg-zinc-950/60 rounded-2xl border border-amber-500/10">
+                        <div>
                           <span className="text-[10px] font-mono text-zinc-400 uppercase tracking-wider block">
-                            Total Referral Commissions Earned
+                            Commission / Referral
                           </span>
-                          <span className="text-xl font-display font-black text-emerald-400 font-mono">
+                          <span className="text-lg font-display font-bold text-amber-300 font-mono">
+                            ₹{(user.referralCommissionRate || 500).toLocaleString("en-IN")}
+                          </span>
+                        </div>
+                        <div>
+                          <span className="text-[10px] font-mono text-zinc-400 uppercase tracking-wider block">
+                            Total Commissions Earned
+                          </span>
+                          <span className="text-lg font-display font-black text-emerald-400 font-mono">
                             ₹{(user.referralEarnings || 0).toLocaleString("en-IN")}
                           </span>
                         </div>
-                        <div className="text-right space-y-0.5">
+                        <div>
                           <span className="text-[10px] font-mono text-zinc-400 uppercase tracking-wider block">
                             Referred Affiliates
                           </span>
-                          <span className="text-lg font-display font-bold text-amber-300 font-mono">
+                          <span className="text-lg font-display font-bold text-amber-200 font-mono">
                             {user.referralCount || 0} Members
                           </span>
                         </div>
@@ -1533,37 +1519,20 @@ export default function ProfileSection({ user, onUpdateUser }: ProfileSectionPro
                   </div>
                 </div>
               ) : (
-                <div className="p-5 rounded-3xl bg-zinc-950/80 border border-zinc-850 space-y-4">
+                <div className="p-5 rounded-3xl bg-zinc-950/80 border border-zinc-850 space-y-3">
                   <div className="flex items-start space-x-3">
                     <div className="p-2.5 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-amber-400 shrink-0">
                       <Lock className="w-5 h-5" />
                     </div>
                     <div className="space-y-1">
                       <h4 className="text-xs font-display font-bold text-zinc-200">
-                        Referral Partner Program Status: Locked
+                        Referral Partner Program Status: Inactive
                       </h4>
                       <p className="text-xs text-zinc-400 leading-relaxed">
-                        The referral system allows you to earn commissions on referring new users to the platform. Access to the referral system requires approval from the Administrator.
+                        The Referral Partner Program and custom commission rates are assigned directly by the Administrator. Contact support or your administrator if you wish to become an official Referral Partner.
                       </p>
                     </div>
                   </div>
-
-                  {refReqSuccess ? (
-                    <div className="p-3 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs flex items-center space-x-2">
-                      <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-                      <span>{refReqSuccess}</span>
-                    </div>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={handleRequestReferralApproval}
-                      disabled={refReqLoading}
-                      className="bg-amber-500 hover:bg-amber-400 text-slate-950 font-display font-bold text-xs py-2.5 px-5 rounded-xl transition-all cursor-pointer flex items-center space-x-2 shadow-md active:scale-98"
-                    >
-                      {refReqLoading ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
-                      <span>Request Referral Partner Approval</span>
-                    </button>
-                  )}
                 </div>
               )}
             </div>

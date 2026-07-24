@@ -58,6 +58,7 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
   const [createReferralCode, setCreateReferralCode] = useState("");
   const [createReferredByCode, setCreateReferredByCode] = useState("");
   const [createIsReferralEligible, setCreateIsReferralEligible] = useState(true);
+  const [createReferralCommissionRate, setCreateReferralCommissionRate] = useState<number>(500);
   const [createSuccess, setCreateSuccess] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
 
@@ -93,6 +94,7 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
   const [editReferralCode, setEditReferralCode] = useState("");
   const [editReferralEarnings, setEditReferralEarnings] = useState<number>(0);
   const [editReferralCount, setEditReferralCount] = useState<number>(0);
+  const [editReferralCommissionRate, setEditReferralCommissionRate] = useState<number>(500);
   const [editReferredByCode, setEditReferredByCode] = useState("");
   const [referralCreditAmount, setReferralCreditAmount] = useState<number | "">("");
   const [referralCreditNote, setReferralCreditNote] = useState("");
@@ -1001,13 +1003,14 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
         referralCode: generatedRefCode,
         referredByCode: createReferredByCode.trim().toUpperCase() || undefined,
         isReferralEligible: createIsReferralEligible,
+        referralCommissionRate: Number(createReferralCommissionRate) || 500,
         referralEarnings: 0,
         referralCount: 0,
       };
 
       await setDoc(userRef, profile);
 
-      // If referredByCode is set, attempt to increment referrer's count
+      // If referredByCode is set, credit referral commission to the referrer
       if (createReferredByCode.trim()) {
         const refQueryCode = createReferredByCode.trim().toUpperCase();
         const referrerObj = users.find(u => 
@@ -1016,11 +1019,49 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
         );
         if (referrerObj) {
           try {
+            const commAmount = Number(referrerObj.referralCommissionRate) || 500;
+            const newRefEarnings = (referrerObj.referralEarnings || 0) + commAmount;
+            const newWallet = (referrerObj.walletBalance || 0) + commAmount;
+            const newTotal = (referrerObj.totalEarnings || 0) + commAmount;
+            const newCount = (referrerObj.referralCount || 0) + 1;
+
             await updateDoc(doc(db, "users", referrerObj.userId), {
-              referralCount: (referrerObj.referralCount || 0) + 1
+              referralEarnings: newRefEarnings,
+              walletBalance: newWallet,
+              totalEarnings: newTotal,
+              referralCount: newCount,
+              isReferralEligible: true,
             });
+
+            // Create Referral Record
+            await addDoc(collection(db, "referralRecords"), {
+              referrerUserId: referrerObj.userId,
+              referrerUsername: referrerObj.username || "User",
+              referredUserId: uid,
+              referredUsername: createUsername.trim(),
+              amount: commAmount,
+              description: `Automated Referral Commission (₹${commAmount}) for referring ${createUsername.trim()} (${customIdVal})`,
+              timestamp: serverTimestamp(),
+              status: "Credited",
+            });
+
+            // Send Notification to referrer
+            await addDoc(collection(db, "notifications"), {
+              userId: referrerObj.userId,
+              title: `💰 ₹${commAmount.toLocaleString("en-IN")} Referral Commission Credited!`,
+              body: `Congratulations! You received ₹${commAmount.toLocaleString("en-IN")} referral commission for successfully registering ${createUsername.trim()} (${customIdVal}). The amount has been credited directly to your Executive Card Balance & All-Time Revenue.`,
+              timestamp: serverTimestamp(),
+              isRead: false,
+              type: "general",
+            });
+
+            await writeAuditLog(
+              "Referral Commission Credited",
+              referrerObj.username,
+              `Auto-credited ₹${commAmount} referral commission to ${referrerObj.username} (${referrerObj.userId}) for referring newly created user ${createUsername.trim()} (${customIdVal}).`
+            );
           } catch (e) {
-            console.warn("Could not update referrer count:", e);
+            console.warn("Could not credit referral commission to referrer:", e);
           }
         }
       }
@@ -1079,6 +1120,7 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
     setEditReferralCode(user.referralCode || `REF-${(user.customUserId || user.userId.substring(0, 5)).toUpperCase()}`);
     setEditReferralEarnings(user.referralEarnings || 0);
     setEditReferralCount(user.referralCount || 0);
+    setEditReferralCommissionRate(user.referralCommissionRate ?? 500);
     setEditReferredByCode(user.referredByCode || "");
     setReferralCreditAmount("");
     setReferralCreditNote("");
@@ -1242,6 +1284,7 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
         referralCode: editReferralCode.trim().toUpperCase(),
         referralEarnings: Number(editReferralEarnings) || 0,
         referralCount: Number(editReferralCount) || 0,
+        referralCommissionRate: Number(editReferralCommissionRate) || 500,
         referredByCode: editReferredByCode.trim().toUpperCase() || undefined,
       };
       await updateDoc(userRef, updatedFields);
@@ -4091,6 +4134,17 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
                   placeholder="REF-CUSTOM"
                   value={createReferralCode}
                   onChange={(e) => setCreateReferralCode(e.target.value.toUpperCase())}
+                  className="w-full bg-slate-950/50 border border-amber-500/30 rounded-xl py-2 px-3.5 text-xs text-amber-200 focus:outline-hidden focus:border-amber-500 font-mono"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[10px] text-amber-400 font-mono uppercase tracking-wider mb-1.5">Referral Commission Rate (₹)</label>
+                <input
+                  type="number"
+                  placeholder="500"
+                  value={createReferralCommissionRate}
+                  onChange={(e) => setCreateReferralCommissionRate(Number(e.target.value))}
                   className="w-full bg-slate-950/50 border border-amber-500/30 rounded-xl py-2 px-3.5 text-xs text-amber-200 focus:outline-hidden focus:border-amber-500 font-mono"
                 />
               </div>
@@ -8590,13 +8644,22 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
                     </label>
                   </div>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-5 gap-3">
                     <div>
                       <label className="block text-[9px] text-zinc-400 font-mono uppercase tracking-wider mb-1">Referral Code</label>
                       <input
                         type="text"
                         value={editReferralCode}
                         onChange={(e) => setEditReferralCode(e.target.value.toUpperCase())}
+                        className="w-full bg-slate-950 border border-zinc-850 rounded-xl py-1.5 px-3 text-amber-300 font-mono text-xs font-bold focus:outline-hidden focus:border-amber-500/50"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[9px] text-amber-400 font-mono uppercase tracking-wider mb-1">Commission / Referral (₹)</label>
+                      <input
+                        type="number"
+                        value={editReferralCommissionRate}
+                        onChange={(e) => setEditReferralCommissionRate(Number(e.target.value))}
                         className="w-full bg-slate-950 border border-zinc-850 rounded-xl py-1.5 px-3 text-amber-300 font-mono text-xs font-bold focus:outline-hidden focus:border-amber-500/50"
                       />
                     </div>

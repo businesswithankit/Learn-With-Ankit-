@@ -56,6 +56,7 @@ export interface UserProfile {
   isReferralEligible?: boolean;
   referralEarnings?: number;
   referralCount?: number;
+  referralCommissionRate?: number;
 }
 
 export interface ReferralRecord {
