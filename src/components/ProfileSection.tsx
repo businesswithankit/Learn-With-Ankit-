@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { User, Mail, Phone, MapPin, Calendar, Award, Shield, DollarSign, Wallet, CheckCircle, Edit, RefreshCw, Lock, Zap, Check, Coins, ShieldCheck, Key, Share2, Briefcase, Building, Send, Clock, CheckCircle2, XCircle, ExternalLink } from "lucide-react";
+import { User, Mail, Phone, MapPin, Calendar, Award, Shield, DollarSign, Wallet, CheckCircle, Edit, RefreshCw, Lock, Zap, Check, Coins, ShieldCheck, Key, Share2, Briefcase, Building, Send, Clock, CheckCircle2, XCircle, ExternalLink, Copy, Users, Sparkles, TrendingUp } from "lucide-react";
 import { doc, updateDoc, collection, query, onSnapshot, runTransaction, serverTimestamp, addDoc, getDoc, getDocs, where, limit, orderBy } from "firebase/firestore";
 import { updatePassword, reauthenticateWithCredential, EmailAuthProvider } from "firebase/auth";
 import { db, auth, handleFirestoreError, OperationType } from "../firebase";
@@ -62,6 +62,47 @@ export default function ProfileSection({ user, onUpdateUser }: ProfileSectionPro
   const [ieSuccess, setIeSuccess] = useState("");
   const [ieError, setIeError] = useState("");
   const [industryRecords, setIndustryRecords] = useState<IndustryEarningRecord[]>([]);
+
+  // Referral System states
+  const [copiedCode, setCopiedCode] = useState(false);
+  const [copiedLink, setCopiedLink] = useState(false);
+  const [refReqLoading, setRefReqLoading] = useState(false);
+  const [refReqSuccess, setRefReqSuccess] = useState("");
+
+  const userRefCode = user.referralCode || `REF-${(user.customUserId || user.userId.substring(0, 5)).toUpperCase()}`;
+  const referralLink = typeof window !== "undefined" ? `${window.location.origin}?ref=${userRefCode}` : `https://learnwithankit.com?ref=${userRefCode}`;
+
+  const handleCopyCode = () => {
+    navigator.clipboard.writeText(userRefCode);
+    setCopiedCode(true);
+    setTimeout(() => setCopiedCode(false), 3000);
+  };
+
+  const handleCopyLink = () => {
+    navigator.clipboard.writeText(referralLink);
+    setCopiedLink(true);
+    setTimeout(() => setCopiedLink(false), 3000);
+  };
+
+  const handleRequestReferralApproval = async () => {
+    setRefReqLoading(true);
+    setRefReqSuccess("");
+    try {
+      await addDoc(collection(db, "notifications"), {
+        userId: "all",
+        title: "🙋 Referral System Approval Requested",
+        body: `User "${user.username}" (${user.email || user.userId}) has requested approval for the Referral Partner Program.`,
+        timestamp: serverTimestamp(),
+        isRead: false,
+        type: "system",
+      });
+      setRefReqSuccess("Referral activation request sent to Administrator successfully!");
+    } catch (err: any) {
+      console.error("Error requesting referral approval:", err);
+    } finally {
+      setRefReqLoading(false);
+    }
+  };
 
   // Realtime subscription for user's Industry Earnings requests
   useEffect(() => {
@@ -302,7 +343,8 @@ export default function ProfileSection({ user, onUpdateUser }: ProfileSectionPro
     return null;
   };
 
-  const rawBadge = getBadgeDetails(user.totalEarnings || 0);
+  const totalEffectiveEarnings = (user.totalEarnings || 0) + (user.industryEarnings || 0);
+  const rawBadge = getBadgeDetails(totalEffectiveEarnings);
   const matchedBadge = user.badge ? getBadgeByName(user.badge) : null;
   const badge = matchedBadge || {
     ...rawBadge,
@@ -838,7 +880,7 @@ export default function ProfileSection({ user, onUpdateUser }: ProfileSectionPro
                 <span className="text-xs text-zinc-400">Total Earnings</span>
               </div>
               <span className="font-display font-bold text-sm text-zinc-100">
-                ₹{user.totalEarnings?.toLocaleString("en-IN") || "0.00"}
+                ₹{((user.totalEarnings || 0) + (user.industryEarnings || 0)).toLocaleString("en-IN")}
               </span>
             </div>
 
@@ -1389,6 +1431,139 @@ export default function ProfileSection({ user, onUpdateUser }: ProfileSectionPro
                       </div>
                     ))}
                   </div>
+                </div>
+              )}
+            </div>
+
+            {/* Referral Program & Partner Hub */}
+            <div className="border-t border-zinc-900 pt-6 space-y-5">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <h3 className="text-sm font-display font-bold text-zinc-100 flex items-center space-x-2">
+                  <Share2 className="w-4.5 h-4.5 text-amber-400" />
+                  <span>Referral Partner System & Earnings Hub</span>
+                </h3>
+                <span className={`text-[10px] font-mono font-bold px-3 py-1 rounded-full uppercase tracking-wider w-fit border ${
+                  user.isReferralEligible
+                    ? "bg-amber-500/10 text-amber-300 border-amber-500/30"
+                    : "bg-zinc-800 text-zinc-400 border-zinc-700"
+                }`}>
+                  {user.isReferralEligible ? "✨ Active Partner" : "🔒 Access Restricted"}
+                </span>
+              </div>
+
+              {user.isReferralEligible ? (
+                <div className="space-y-4">
+                  {/* Referral Link & Code Box */}
+                  <div className="p-5 rounded-3xl bg-gradient-to-br from-amber-950/40 via-zinc-950 to-zinc-900 border border-amber-500/30 space-y-4 shadow-xl">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                      <div>
+                        <span className="text-[10px] font-mono uppercase tracking-widest text-amber-400 font-bold block">
+                          Your Exclusive Referral Code
+                        </span>
+                        <div className="text-2xl font-mono font-black text-amber-300 tracking-wider mt-0.5">
+                          {userRefCode}
+                        </div>
+                      </div>
+
+                      <div className="flex items-center space-x-2">
+                        <button
+                          type="button"
+                          onClick={handleCopyCode}
+                          className="bg-amber-500 hover:bg-amber-400 text-slate-950 font-display font-bold text-xs py-2 px-3.5 rounded-xl transition-all cursor-pointer flex items-center space-x-1.5 shadow-md active:scale-98"
+                        >
+                          {copiedCode ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+                          <span>{copiedCode ? "Code Copied!" : "Copy Code"}</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleCopyLink}
+                          className="bg-zinc-900 hover:bg-zinc-800 text-amber-300 border border-amber-500/30 font-display font-bold text-xs py-2 px-3.5 rounded-xl transition-all cursor-pointer flex items-center space-x-1.5 active:scale-98"
+                        >
+                          {copiedLink ? <Check className="w-4 h-4 text-emerald-400" /> : <Share2 className="w-4 h-4" />}
+                          <span>{copiedLink ? "Link Copied!" : "Copy Invite Link"}</span>
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Referral Progress Bar & Earnings Bar */}
+                    <div className="pt-4 border-t border-amber-500/20 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <div className="space-y-0.5">
+                          <span className="text-[10px] font-mono text-zinc-400 uppercase tracking-wider block">
+                            Total Referral Commissions Earned
+                          </span>
+                          <span className="text-xl font-display font-black text-emerald-400 font-mono">
+                            ₹{(user.referralEarnings || 0).toLocaleString("en-IN")}
+                          </span>
+                        </div>
+                        <div className="text-right space-y-0.5">
+                          <span className="text-[10px] font-mono text-zinc-400 uppercase tracking-wider block">
+                            Referred Affiliates
+                          </span>
+                          <span className="text-lg font-display font-bold text-amber-300 font-mono">
+                            {user.referralCount || 0} Members
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Earning Progress Bar */}
+                      <div>
+                        <div className="flex justify-between text-[10px] font-mono text-zinc-400 mb-1">
+                          <span>Progress to Next Tier Target (₹10,000)</span>
+                          <span className="text-amber-400 font-bold">
+                            {Math.min(100, Math.round(((user.referralEarnings || 0) / 10000) * 100))}%
+                          </span>
+                        </div>
+                        <div className="w-full h-3 bg-zinc-900 rounded-full overflow-hidden border border-zinc-800 p-0.5">
+                          <div
+                            className="h-full bg-gradient-to-r from-amber-500 via-amber-400 to-emerald-400 rounded-full transition-all duration-500 shadow-sm"
+                            style={{ width: `${Math.min(100, Math.max(4, ((user.referralEarnings || 0) / 10000) * 100))}%` }}
+                          />
+                        </div>
+                      </div>
+
+                      <div className="p-3 bg-zinc-900/80 rounded-2xl border border-zinc-800/80 text-[11px] text-zinc-300 space-y-1 flex items-start space-x-2">
+                        <Coins className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+                        <div>
+                          <span className="font-bold text-amber-300">Instant Credit System: </span>
+                          All referral payments are automatically added directly to your Executive Credit Card balance and reflected in your All-Time Revenue!
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="p-5 rounded-3xl bg-zinc-950/80 border border-zinc-850 space-y-4">
+                  <div className="flex items-start space-x-3">
+                    <div className="p-2.5 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-amber-400 shrink-0">
+                      <Lock className="w-5 h-5" />
+                    </div>
+                    <div className="space-y-1">
+                      <h4 className="text-xs font-display font-bold text-zinc-200">
+                        Referral Partner Program Status: Locked
+                      </h4>
+                      <p className="text-xs text-zinc-400 leading-relaxed">
+                        The referral system allows you to earn commissions on referring new users to the platform. Access to the referral system requires approval from the Administrator.
+                      </p>
+                    </div>
+                  </div>
+
+                  {refReqSuccess ? (
+                    <div className="p-3 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs flex items-center space-x-2">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                      <span>{refReqSuccess}</span>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={handleRequestReferralApproval}
+                      disabled={refReqLoading}
+                      className="bg-amber-500 hover:bg-amber-400 text-slate-950 font-display font-bold text-xs py-2.5 px-5 rounded-xl transition-all cursor-pointer flex items-center space-x-2 shadow-md active:scale-98"
+                    >
+                      {refReqLoading ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
+                      <span>Request Referral Partner Approval</span>
+                    </button>
+                  )}
                 </div>
               )}
             </div>

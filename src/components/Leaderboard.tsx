@@ -54,7 +54,7 @@ export default function Leaderboard({ currentUser }: LeaderboardProps) {
         case "month":
           return u.last30DaysEarnings || 0;
         case "lifetime":
-          return u.totalEarnings || 0;
+          return (u.totalEarnings || 0) + (u.industryEarnings || 0);
       }
     };
 

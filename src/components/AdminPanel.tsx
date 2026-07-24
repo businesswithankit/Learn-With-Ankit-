@@ -55,6 +55,9 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
   const [createPhone, setCreatePhone] = useState("");
   const [createState, setCreateState] = useState("");
   const [createPassword, setCreatePassword] = useState("");
+  const [createReferralCode, setCreateReferralCode] = useState("");
+  const [createReferredByCode, setCreateReferredByCode] = useState("");
+  const [createIsReferralEligible, setCreateIsReferralEligible] = useState(true);
   const [createSuccess, setCreateSuccess] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
 
@@ -86,6 +89,15 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
   const [editKycName, setEditKycName] = useState("");
   const [editKycUpiId, setEditKycUpiId] = useState("");
   const [editKycUpiNumber, setEditKycUpiNumber] = useState("");
+  const [editIsReferralEligible, setEditIsReferralEligible] = useState<boolean>(false);
+  const [editReferralCode, setEditReferralCode] = useState("");
+  const [editReferralEarnings, setEditReferralEarnings] = useState<number>(0);
+  const [editReferralCount, setEditReferralCount] = useState<number>(0);
+  const [editReferredByCode, setEditReferredByCode] = useState("");
+  const [referralCreditAmount, setReferralCreditAmount] = useState<number | "">("");
+  const [referralCreditNote, setReferralCreditNote] = useState("");
+  const [referralCreditSuccess, setReferralCreditSuccess] = useState("");
+  const [referralCreditLoading, setReferralCreditLoading] = useState(false);
 
   const [banningUser, setBanningUser] = useState<UserProfile | null>(null);
   const [banDuration, setBanDuration] = useState("1d");
@@ -967,9 +979,12 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
 
       // 2. Provision Firestore profile
       const userRef = doc(db, "users", uid);
+      const customIdVal = createUserId.trim() || `LWA-${uid.substring(0, 5).toUpperCase()}`;
+      const generatedRefCode = createReferralCode.trim().toUpperCase() || `REF-${customIdVal.toUpperCase().replace(/\s+/g, "")}`;
+
       const profile: UserProfile = {
         userId: uid,
-        customUserId: createUserId.trim() || `LWA-${uid.substring(0, 5).toUpperCase()}`,
+        customUserId: customIdVal,
         username: createUsername.trim(),
         email: createEmail.trim(),
         phone: createPhone.trim(),
@@ -983,9 +998,32 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
         last30DaysEarnings: 0,
         role: "user",
         badge: "Bronze",
+        referralCode: generatedRefCode,
+        referredByCode: createReferredByCode.trim().toUpperCase() || undefined,
+        isReferralEligible: createIsReferralEligible,
+        referralEarnings: 0,
+        referralCount: 0,
       };
 
       await setDoc(userRef, profile);
+
+      // If referredByCode is set, attempt to increment referrer's count
+      if (createReferredByCode.trim()) {
+        const refQueryCode = createReferredByCode.trim().toUpperCase();
+        const referrerObj = users.find(u => 
+          (u.referralCode && u.referralCode.toUpperCase() === refQueryCode) ||
+          (u.customUserId && u.customUserId.toUpperCase() === refQueryCode)
+        );
+        if (referrerObj) {
+          try {
+            await updateDoc(doc(db, "users", referrerObj.userId), {
+              referralCount: (referrerObj.referralCount || 0) + 1
+            });
+          } catch (e) {
+            console.warn("Could not update referrer count:", e);
+          }
+        }
+      }
 
       // 3. Create welcome notification
       await addDoc(collection(db, "notifications"), {
@@ -1007,6 +1045,9 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
       setCreatePhone("");
       setCreateState("");
       setCreatePassword("");
+      setCreateReferralCode("");
+      setCreateReferredByCode("");
+      setCreateIsReferralEligible(true);
       setTimeout(() => setCreateSuccess(false), 5000);
     } catch (err: any) {
       setCreateError(err.message || "Failed to create user. User may already exist.");
@@ -1034,6 +1075,14 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
     setEditBadge(user.badge || "Bronze");
     setEditVipTagText(user.vipTagText || "");
     setEditRole(user.role || "user");
+    setEditIsReferralEligible(user.isReferralEligible ?? false);
+    setEditReferralCode(user.referralCode || `REF-${(user.customUserId || user.userId.substring(0, 5)).toUpperCase()}`);
+    setEditReferralEarnings(user.referralEarnings || 0);
+    setEditReferralCount(user.referralCount || 0);
+    setEditReferredByCode(user.referredByCode || "");
+    setReferralCreditAmount("");
+    setReferralCreditNote("");
+    setReferralCreditSuccess("");
     setEditCoFounderPermissions(user.coFounderPermissions || {
       manageUsers: false,
       manageAccountCreation: false,
@@ -1048,6 +1097,84 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
       managePages: false,
       manageNotifications: false,
     });
+  };
+
+  const handleCreditReferralReward = async () => {
+    if (!editingUser) return;
+    const amount = Number(referralCreditAmount);
+    if (!amount || amount <= 0) {
+      alert("Please enter a valid positive referral reward amount.");
+      return;
+    }
+
+    setReferralCreditLoading(true);
+    setReferralCreditSuccess("");
+    try {
+      const userRef = doc(db, "users", editingUser.userId);
+      const currentRefEarnings = editingUser.referralEarnings || 0;
+      const currentWallet = editingUser.walletBalance || 0;
+      const currentTotal = editingUser.totalEarnings || 0;
+
+      const newRefEarnings = currentRefEarnings + amount;
+      const newWallet = currentWallet + amount;
+      const newTotal = currentTotal + amount;
+
+      await updateDoc(userRef, {
+        referralEarnings: newRefEarnings,
+        walletBalance: newWallet,
+        totalEarnings: newTotal,
+        isReferralEligible: true, // ensure user is marked eligible
+      });
+
+      // Create Referral Transaction Record
+      await addDoc(collection(db, "referralRecords"), {
+        referrerUserId: editingUser.userId,
+        referrerUsername: editingUser.username || "User",
+        amount: amount,
+        description: referralCreditNote.trim() || "Manual Referral Commission Credited by Admin",
+        timestamp: serverTimestamp(),
+        status: "Credited",
+      });
+
+      // Send Notification to user
+      await addDoc(collection(db, "notifications"), {
+        userId: editingUser.userId,
+        title: "💰 Referral Commission Credited!",
+        body: `₹${amount.toLocaleString("en-IN")} referral commission has been added to your Executive Wallet Card balance and All-Time Revenue.`,
+        timestamp: serverTimestamp(),
+        isRead: false,
+        type: "general",
+      });
+
+      // Audit log
+      await writeAuditLog(
+        "Referral Bonus Credited",
+        editingUser.username,
+        `Credited ₹${amount} referral commission to ${editingUser.username} (${editingUser.userId}). Note: ${referralCreditNote || "None"}`
+      );
+
+      // Update local state
+      setEditReferralEarnings(newRefEarnings);
+      setEditWalletBalance(newWallet);
+      setEditTotalEarnings(newTotal);
+      setEditIsReferralEligible(true);
+      setEditingUser({
+        ...editingUser,
+        referralEarnings: newRefEarnings,
+        walletBalance: newWallet,
+        totalEarnings: newTotal,
+        isReferralEligible: true,
+      });
+
+      setReferralCreditSuccess(`Successfully credited ₹${amount.toLocaleString("en-IN")} referral income to ${editingUser.username}!`);
+      setReferralCreditAmount("");
+      setReferralCreditNote("");
+    } catch (err: any) {
+      console.error("Error crediting referral reward:", err);
+      alert(err.message || "Failed to credit referral reward.");
+    } finally {
+      setReferralCreditLoading(false);
+    }
   };
 
   const handleSaveUserEdit = async (e: React.FormEvent) => {
@@ -1111,8 +1238,25 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
         vipTagText: editVipTagText.trim() || null,
         role: editRole,
         coFounderPermissions: editRole === "co-founder" ? editCoFounderPermissions : null,
+        isReferralEligible: editIsReferralEligible,
+        referralCode: editReferralCode.trim().toUpperCase(),
+        referralEarnings: Number(editReferralEarnings) || 0,
+        referralCount: Number(editReferralCount) || 0,
+        referredByCode: editReferredByCode.trim().toUpperCase() || undefined,
       };
       await updateDoc(userRef, updatedFields);
+
+      // Send notification if user was approved for Referral System
+      if (!editingUser.isReferralEligible && editIsReferralEligible) {
+        await addDoc(collection(db, "notifications"), {
+          userId: editingUser.userId,
+          title: "🎉 Referral Program Approved!",
+          body: `Congratulations! Your account has been approved for the Referral Partner Program. Your referral code is "${editReferralCode.trim().toUpperCase()}". Share and earn!`,
+          timestamp: serverTimestamp(),
+          isRead: false,
+          type: "general",
+        });
+      }
 
       // Log manual badge override if changed
       if (editBadgeMode === "manual" && (previousBadgeMode !== "manual" || previousBadge !== editBadge)) {
@@ -3927,6 +4071,41 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
                   onChange={(e) => setCreateState(e.target.value)}
                   className="w-full bg-slate-950/50 border border-zinc-800 rounded-xl py-2 px-3.5 text-xs text-zinc-200 focus:outline-hidden focus:border-red-500/50"
                 />
+              </div>
+
+              <div>
+                <label className="block text-[10px] text-amber-400 font-mono uppercase tracking-wider mb-1.5">Referred By Code / ID (Optional)</label>
+                <input
+                  type="text"
+                  placeholder="REF-SPONSOR / USER01"
+                  value={createReferredByCode}
+                  onChange={(e) => setCreateReferredByCode(e.target.value.toUpperCase())}
+                  className="w-full bg-slate-950/50 border border-amber-500/30 rounded-xl py-2 px-3.5 text-xs text-amber-200 focus:outline-hidden focus:border-amber-500 font-mono"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[10px] text-amber-400 font-mono uppercase tracking-wider mb-1.5">Custom Referral Code (Optional)</label>
+                <input
+                  type="text"
+                  placeholder="REF-CUSTOM"
+                  value={createReferralCode}
+                  onChange={(e) => setCreateReferralCode(e.target.value.toUpperCase())}
+                  className="w-full bg-slate-950/50 border border-amber-500/30 rounded-xl py-2 px-3.5 text-xs text-amber-200 focus:outline-hidden focus:border-amber-500 font-mono"
+                />
+              </div>
+
+              <div className="flex items-center space-x-2 pt-2 md:col-span-3">
+                <input
+                  type="checkbox"
+                  id="createIsReferralEligible"
+                  checked={createIsReferralEligible}
+                  onChange={(e) => setCreateIsReferralEligible(e.target.checked)}
+                  className="w-4 h-4 rounded-md border-zinc-700 text-amber-500 focus:ring-amber-500 focus:ring-offset-zinc-900 accent-amber-500 cursor-pointer"
+                />
+                <label htmlFor="createIsReferralEligible" className="text-xs font-semibold text-amber-300 cursor-pointer">
+                  Approve user for Referral System & Partner Program upon creation
+                </label>
               </div>
 
               <div className="flex items-end">
@@ -8381,6 +8560,120 @@ export default function AdminPanel({ adminUser }: AdminPanelProps) {
                   />
                 </div>
               )}
+
+              <div className="pt-3 border-t border-zinc-900 space-y-3.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-mono uppercase tracking-wider text-amber-400 font-bold flex items-center space-x-1.5">
+                    <Share2 className="w-3.5 h-3.5 text-amber-400" />
+                    <span>Referral System & Partner Program Settings</span>
+                  </span>
+                  <span className={`text-[9px] font-mono font-bold px-2 py-0.5 rounded-full border ${
+                    editIsReferralEligible 
+                      ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/30" 
+                      : "bg-red-500/10 text-red-400 border-red-500/30"
+                  }`}>
+                    {editIsReferralEligible ? "✅ Approved for Referral System" : "🔒 Referral System Inactive"}
+                  </span>
+                </div>
+
+                <div className="p-3 bg-amber-500/5 border border-amber-500/20 rounded-xl space-y-3">
+                  <div className="flex items-center space-x-2">
+                    <input
+                      type="checkbox"
+                      id="editIsReferralEligible"
+                      checked={editIsReferralEligible}
+                      onChange={(e) => setEditIsReferralEligible(e.target.checked)}
+                      className="w-4 h-4 rounded border-zinc-700 text-amber-500 focus:ring-amber-500 accent-amber-500 cursor-pointer"
+                    />
+                    <label htmlFor="editIsReferralEligible" className="text-xs font-semibold text-amber-300 cursor-pointer">
+                      Approve user for Referral System & Partner Program
+                    </label>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+                    <div>
+                      <label className="block text-[9px] text-zinc-400 font-mono uppercase tracking-wider mb-1">Referral Code</label>
+                      <input
+                        type="text"
+                        value={editReferralCode}
+                        onChange={(e) => setEditReferralCode(e.target.value.toUpperCase())}
+                        className="w-full bg-slate-950 border border-zinc-850 rounded-xl py-1.5 px-3 text-amber-300 font-mono text-xs font-bold focus:outline-hidden focus:border-amber-500/50"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[9px] text-zinc-400 font-mono uppercase tracking-wider mb-1">Referral Earnings (₹)</label>
+                      <input
+                        type="number"
+                        value={editReferralEarnings}
+                        onChange={(e) => setEditReferralEarnings(Number(e.target.value))}
+                        className="w-full bg-slate-950 border border-zinc-850 rounded-xl py-1.5 px-3 text-zinc-200 font-mono text-xs font-bold focus:outline-hidden focus:border-amber-500/50"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[9px] text-zinc-400 font-mono uppercase tracking-wider mb-1">Referred Members</label>
+                      <input
+                        type="number"
+                        value={editReferralCount}
+                        onChange={(e) => setEditReferralCount(Number(e.target.value))}
+                        className="w-full bg-slate-950 border border-zinc-850 rounded-xl py-1.5 px-3 text-zinc-200 font-mono text-xs font-bold focus:outline-hidden focus:border-amber-500/50"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[9px] text-zinc-400 font-mono uppercase tracking-wider mb-1">Referred By Code</label>
+                      <input
+                        type="text"
+                        placeholder="N/A"
+                        value={editReferredByCode}
+                        onChange={(e) => setEditReferredByCode(e.target.value.toUpperCase())}
+                        className="w-full bg-slate-950 border border-zinc-850 rounded-xl py-1.5 px-3 text-zinc-300 font-mono text-xs focus:outline-hidden focus:border-amber-500/50"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Instant Referral Reward Credit Tool */}
+                  <div className="pt-2 border-t border-amber-500/10 space-y-2">
+                    <span className="text-[10px] font-mono text-amber-400/90 font-bold block">
+                      ⚡ Quick Credit Referral Payout / Commission
+                    </span>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                      <input
+                        type="number"
+                        placeholder="Amount (₹ e.g. 500)"
+                        value={referralCreditAmount}
+                        onChange={(e) => setReferralCreditAmount(e.target.value === "" ? "" : Number(e.target.value))}
+                        className="bg-slate-950 border border-zinc-800 rounded-xl py-1.5 px-3 text-xs text-zinc-200 font-mono focus:outline-hidden focus:border-amber-500/50"
+                      />
+                      <input
+                        type="text"
+                        placeholder="Note / Campaign Remark"
+                        value={referralCreditNote}
+                        onChange={(e) => setReferralCreditNote(e.target.value)}
+                        className="bg-slate-950 border border-zinc-800 rounded-xl py-1.5 px-3 text-xs text-zinc-200 focus:outline-hidden focus:border-amber-500/50"
+                      />
+                      <button
+                        type="button"
+                        onClick={handleCreditReferralReward}
+                        disabled={referralCreditLoading || !referralCreditAmount}
+                        className="bg-amber-500 hover:bg-amber-400 disabled:bg-zinc-800 text-slate-950 font-bold text-xs py-1.5 px-3 rounded-xl transition-all cursor-pointer flex items-center justify-center space-x-1"
+                      >
+                        {referralCreditLoading ? (
+                          <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                        ) : (
+                          <>
+                            <Coins className="w-3.5 h-3.5" />
+                            <span>Credit Referral Payout</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+                    {referralCreditSuccess && (
+                      <p className="text-[11px] font-mono text-emerald-400 bg-emerald-500/10 border border-emerald-500/30 p-2 rounded-lg">
+                        {referralCreditSuccess}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              </div>
 
               <div className="pt-3 border-t border-zinc-900 space-y-3.5">
                 <span className="text-[10px] font-mono uppercase tracking-wider text-zinc-500 block">Bank KYC Verification Details</span>

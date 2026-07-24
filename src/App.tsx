@@ -29,7 +29,7 @@ import {
   Trophy, Wallet, CreditCard, Landmark, History, Award, Shield, User, 
   LogOut, ShieldAlert, Key, AlertCircle, RefreshCw, Layers, Sparkles, HelpCircle, X, Menu, Settings,
   Cpu, Activity, Terminal, Wifi, Lock, ShieldCheck, Database, CheckCircle2,
-  BarChart2, GraduationCap, Copy, Check, ExternalLink, Briefcase, Clock
+  BarChart2, GraduationCap, Copy, Check, ExternalLink, Briefcase, Clock, Share2
 } from "lucide-react";
 
 type ActivePage = string;
@@ -247,8 +247,9 @@ export default function App() {
     if (activeBadges.length === 0) return;
 
     // Find highest qualified badge
+    const totalEffectiveEarnings = (currentUser.totalEarnings || 0) + (currentUser.industryEarnings || 0);
     const qualified = [...activeBadges]
-      .filter(b => (currentUser.totalEarnings || 0) >= (b.minEarnings || 0))
+      .filter(b => totalEffectiveEarnings >= (b.minEarnings || 0))
       .sort((a, b) => (b.minEarnings || 0) - (a.minEarnings || 0));
 
     const correctBadge = qualified.length > 0 ? qualified[0].name : "Bronze";
@@ -274,7 +275,7 @@ export default function App() {
         console.error("Failed to automatically update user badge:", err);
       });
     }
-  }, [currentUser?.totalEarnings, currentUser?.badge, (currentUser as any)?.badgeMode, badges]);
+  }, [currentUser?.totalEarnings, currentUser?.industryEarnings, currentUser?.badge, (currentUser as any)?.badgeMode, badges]);
 
   useEffect(() => {
     let unsubscribeProfile: (() => void) | null = null;
@@ -1346,6 +1347,38 @@ export default function App() {
                         className="text-xs font-semibold text-emerald-300 hover:text-emerald-100 flex items-center space-x-1 group-hover:translate-x-1 transition-transform cursor-pointer"
                       >
                         <span>Click here to view detail(s)</span>
+                        <ExternalLink className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Card 6: Referral Income Card */}
+                {(activeUser.isReferralEligible || (activeUser.referralEarnings || 0) > 0) && (
+                  <div className="relative rounded-3xl bg-gradient-to-br from-amber-950/70 via-zinc-950 to-zinc-900 border border-amber-500/30 p-6 shadow-xl space-y-4 group hover:border-amber-400/60 transition-all">
+                    <div className="flex items-start justify-between">
+                      <div className="space-y-1">
+                        <div className="text-3xl sm:text-4xl font-display font-black text-amber-300 flex items-center">
+                          ₹&nbsp;<AnimatedCounter value={activeUser.referralEarnings || 0} />
+                        </div>
+                        <h3 className="text-sm sm:text-base font-display font-bold text-amber-200 flex items-center space-x-1.5">
+                          <span>Referral Earnings</span>
+                          <span className="text-[10px] font-mono font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30 px-2 py-0.5 rounded-full">
+                            {activeUser.referralCount || 0} Referred
+                          </span>
+                        </h3>
+                      </div>
+                      <div className="w-12 h-12 rounded-full bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-400 shadow-inner shrink-0">
+                        <Share2 className="w-6 h-6" />
+                      </div>
+                    </div>
+                    <div className="pt-3 border-t border-amber-500/20 flex items-center justify-between">
+                      <button
+                        type="button"
+                        onClick={() => setActivePage("profile")}
+                        className="text-xs font-semibold text-amber-300 hover:text-amber-100 flex items-center space-x-1 group-hover:translate-x-1 transition-transform cursor-pointer"
+                      >
+                        <span>View Referral Hub & Link</span>
                         <ExternalLink className="w-3.5 h-3.5" />
                       </button>
                     </div>
