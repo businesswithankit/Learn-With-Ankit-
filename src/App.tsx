@@ -79,12 +79,6 @@ export default function App() {
   } | null>(null);
   const [industryDetailModal, setIndustryDetailModal] = useState(false);
   const [userIndustryRequests, setUserIndustryRequests] = useState<IndustryEarningRecord[]>([]);
-  const [referralRolling, setReferralRolling] = useState({
-    today: 0,
-    last7Days: 0,
-    last30Days: 0,
-    total: 0
-  });
 
   // Global document title sync
   useEffect(() => {
@@ -286,7 +280,6 @@ export default function App() {
   useEffect(() => {
     let unsubscribeProfile: (() => void) | null = null;
     let unsubscribePayments: (() => void) | null = null;
-    let unsubscribeRefRecords: (() => void) | null = null;
 
     // Synchronize Auth user state
     const unsubscribeAuth = onAuthStateChanged(auth, (firebaseAuthUser) => {
@@ -298,10 +291,6 @@ export default function App() {
       if (unsubscribePayments) {
         unsubscribePayments();
         unsubscribePayments = null;
-      }
-      if (unsubscribeRefRecords) {
-        unsubscribeRefRecords();
-        unsubscribeRefRecords = null;
       }
 
       setAuthUser(firebaseAuthUser);
@@ -425,50 +414,6 @@ export default function App() {
         }, (payErr) => {
           console.error("Approved payments rolling sync error:", payErr);
         });
-
-        // Listen to referral records in real-time for rolling referral earnings
-        const qRef = query(
-          collection(db, "referralRecords"),
-          where("referrerUserId", "==", firebaseAuthUser.uid)
-        );
-        unsubscribeRefRecords = onSnapshot(qRef, (refSnap) => {
-          const now = Date.now();
-          const startOfToday = new Date();
-          startOfToday.setHours(0, 0, 0, 0);
-          const startOfTodayMs = startOfToday.getTime();
-          const sevenDaysAgo = now - 7 * 24 * 60 * 60 * 1000;
-          const thirtyDaysAgo = now - 30 * 24 * 60 * 60 * 1000;
-
-          let rToday = 0;
-          let r7 = 0;
-          let r30 = 0;
-          let rTot = 0;
-
-          refSnap.forEach((d) => {
-            const data = d.data();
-            let recordTime = now;
-            if (data.timestamp) {
-              if (typeof data.timestamp.toMillis === "function") recordTime = data.timestamp.toMillis();
-              else if (data.timestamp.seconds) recordTime = data.timestamp.seconds * 1000;
-              else if (data.timestamp instanceof Date) recordTime = data.timestamp.getTime();
-              else recordTime = new Date(data.timestamp).getTime() || now;
-            }
-            const amt = data.amount || 0;
-            rTot += amt;
-            if (recordTime >= startOfTodayMs) rToday += amt;
-            if (recordTime >= sevenDaysAgo) r7 += amt;
-            if (recordTime >= thirtyDaysAgo) r30 += amt;
-          });
-
-          setReferralRolling({
-            today: rToday,
-            last7Days: r7,
-            last30Days: r30,
-            total: rTot
-          });
-        }, (refErr) => {
-          console.error("Referral records rolling sync error:", refErr);
-        });
       } else {
         setCurrentUser(null);
       }
@@ -478,7 +423,6 @@ export default function App() {
       unsubscribeAuth();
       if (unsubscribeProfile) unsubscribeProfile();
       if (unsubscribePayments) unsubscribePayments();
-      if (unsubscribeRefRecords) unsubscribeRefRecords();
     };
   }, []);
 
@@ -1405,64 +1349,6 @@ export default function App() {
                         <span>Click here to view detail(s)</span>
                         <ExternalLink className="w-3.5 h-3.5" />
                       </button>
-                    </div>
-                  </div>
-                )}
-
-                {/* Card 6: Referral Income Card */}
-                {(activeUser.isReferralEligible || (activeUser.referralEarnings || 0) > 0) && (
-                  <div className="relative rounded-3xl bg-gradient-to-br from-amber-950/70 via-zinc-950 to-zinc-900 border border-amber-500/30 p-6 shadow-xl space-y-4 group hover:border-amber-400/60 transition-all sm:col-span-2 md:col-span-1 lg:col-span-2">
-                    <div className="flex items-start justify-between">
-                      <div className="space-y-1">
-                        <div className="text-3xl sm:text-4xl font-display font-black text-amber-300 flex items-center">
-                          ₹&nbsp;<AnimatedCounter value={Math.max(referralRolling.total, activeUser.referralEarnings || 0)} />
-                        </div>
-                        <h3 className="text-sm sm:text-base font-display font-bold text-amber-200 flex items-center space-x-2">
-                          <span>Referral Commission Earnings</span>
-                          <span className="text-[10px] font-mono font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30 px-2 py-0.5 rounded-full">
-                            {activeUser.referralCount || 0} Referred
-                          </span>
-                        </h3>
-                      </div>
-                      <div className="w-12 h-12 rounded-full bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-400 shadow-inner shrink-0">
-                        <Share2 className="w-6 h-6" />
-                      </div>
-                    </div>
-
-                    {/* 1 Day, 7 Days, 30 Days Rolling Referral Breakdown */}
-                    <div className="grid grid-cols-3 gap-2 sm:gap-3 pt-3 border-t border-amber-500/20">
-                      <div className="bg-amber-950/40 border border-amber-500/20 p-2.5 rounded-2xl text-center space-y-0.5">
-                        <span className="text-[9px] font-mono uppercase text-amber-400/90 font-bold block">1 Day (Today)</span>
-                        <span className="text-sm sm:text-base font-display font-black text-zinc-100 font-mono">
-                          ₹{referralRolling.today.toLocaleString("en-IN")}
-                        </span>
-                      </div>
-                      <div className="bg-amber-950/40 border border-amber-500/20 p-2.5 rounded-2xl text-center space-y-0.5">
-                        <span className="text-[9px] font-mono uppercase text-amber-400/90 font-bold block">7 Days</span>
-                        <span className="text-sm sm:text-base font-display font-black text-zinc-100 font-mono">
-                          ₹{referralRolling.last7Days.toLocaleString("en-IN")}
-                        </span>
-                      </div>
-                      <div className="bg-amber-950/40 border border-amber-500/20 p-2.5 rounded-2xl text-center space-y-0.5">
-                        <span className="text-[9px] font-mono uppercase text-amber-400/90 font-bold block">30 Days</span>
-                        <span className="text-sm sm:text-base font-display font-black text-zinc-100 font-mono">
-                          ₹{referralRolling.last30Days.toLocaleString("en-IN")}
-                        </span>
-                      </div>
-                    </div>
-
-                    <div className="pt-2 flex items-center justify-between">
-                      <button
-                        type="button"
-                        onClick={() => setActivePage("profile")}
-                        className="text-xs font-semibold text-amber-300 hover:text-amber-100 flex items-center space-x-1 group-hover:translate-x-1 transition-transform cursor-pointer"
-                      >
-                        <span>View Referral Partner Hub & Link</span>
-                        <ExternalLink className="w-3.5 h-3.5" />
-                      </button>
-                      <span className="text-[10px] font-mono text-amber-400/90 font-semibold">
-                        Rate: ₹{(activeUser.referralCommissionRate || 500)}/ref
-                      </span>
                     </div>
                   </div>
                 )}

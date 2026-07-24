@@ -49,26 +49,6 @@ export interface UserProfile {
   badgeMode?: 'auto' | 'manual';
   membershipStatus?: 'Active' | 'Expired' | 'Cancelled';
   industryEarnings?: number;
-  // Referral System fields
-  referralCode?: string;
-  referredByCode?: string;
-  referredByUserId?: string;
-  isReferralEligible?: boolean;
-  referralEarnings?: number;
-  referralCount?: number;
-  referralCommissionRate?: number;
-}
-
-export interface ReferralRecord {
-  id: string;
-  referrerUserId: string;
-  referrerUsername: string;
-  referredUserId: string;
-  referredUsername: string;
-  amount: number;
-  description: string;
-  timestamp: any;
-  status: 'Credited' | 'Pending';
 }
 
 export interface IndustryEarningRecord {
