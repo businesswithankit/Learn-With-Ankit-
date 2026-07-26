@@ -1,0 +1,32 @@
+{
+  "short_name": "LWA Earnings",
+  "name": "LEARN WITH ANKIT",
+  "description": "Premium Dark Theme Earnings Management System with real-time Firebase tracking, wallet, payment and withdrawal requests, leaderboards, challenge portal, and administrative audit logs.",
+  "icons": [
+    {
+      "src": "/pwa-icon.svg",
+      "type": "image/svg+xml",
+      "sizes": "512x512 192x192 144x144 96x96",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/pwa-icon-192.png",
+      "type": "image/png",
+      "sizes": "192x192",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/pwa-icon-512.png",
+      "type": "image/png",
+      "sizes": "512x512",
+      "purpose": "any maskable"
+    }
+  ],
+  "start_url": "/",
+  "background_color": "#09090b",
+  "theme_color": "#f59e0b",
+  "display": "standalone",
+  "orientation": "portrait",
+  "scope": "/",
+  "id": "/"
+}
